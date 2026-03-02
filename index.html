@@ -1,0 +1,748 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Companion Engine — Rule Builder</title>
+  <style>
+    /* ======================================================
+       CSS CUSTOM PROPERTIES
+       ====================================================== */
+    :root {
+      --color-bg: #1a1c23;
+      --color-surface: #23262f;
+      --color-surface-alt: #2a2d37;
+      --color-border: #363944;
+      --color-border-focus: #3b82f6;
+      --color-text: #e2e4e9;
+      --color-text-secondary: #9ca3b0;
+      --color-text-muted: #6b7280;
+      --color-primary: #3b82f6;
+      --color-primary-hover: #2563eb;
+      --color-primary-light: rgba(59, 130, 246, 0.12);
+      --color-success: #22c55e;
+      --color-success-light: rgba(34, 197, 94, 0.1);
+      --color-error: #ef4444;
+      --color-error-light: rgba(239, 68, 68, 0.1);
+      --color-warning: #f59e0b;
+      --color-warning-light: rgba(245, 158, 11, 0.1);
+      --color-info: #3b82f6;
+      --color-info-light: rgba(59, 130, 246, 0.1);
+      --radius: 8px;
+      --radius-sm: 4px;
+      --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
+      --shadow-md: 0 4px 6px rgba(0,0,0,0.07), 0 2px 4px rgba(0,0,0,0.04);
+      --transition: 150ms ease;
+      --font-mono: 'SF Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace;
+      --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+
+    /* ======================================================
+       RESET & BASE
+       ====================================================== */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { font-size: 14px; }
+    body {
+      font-family: var(--font-sans);
+      color: var(--color-text);
+      background: var(--color-bg);
+      line-height: 1.5;
+      min-height: 100vh;
+    }
+
+    /* ======================================================
+       LAYOUT
+       ====================================================== */
+    .app-header {
+      background: var(--color-surface);
+      border-bottom: 1px solid var(--color-border);
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: var(--shadow);
+    }
+    .app-header h1 {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--color-text);
+    }
+    .app-header h1 span { color: var(--color-primary); }
+    .header-actions { display: flex; gap: 8px; align-items: center; }
+
+    .app-main {
+      display: grid;
+      grid-template-columns: 65% 35%;
+      gap: 0;
+      height: calc(100vh - 49px);
+    }
+    @media (max-width: 900px) {
+      .app-main { grid-template-columns: 1fr; height: auto; }
+    }
+
+    /* ======================================================
+       FORM PANEL (LEFT)
+       ====================================================== */
+    .form-panel {
+      overflow-y: auto;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    /* ======================================================
+       PREVIEW PANEL (RIGHT)
+       ====================================================== */
+    .preview-panel {
+      border-left: 1px solid var(--color-border);
+      display: flex;
+      flex-direction: column;
+      background: var(--color-surface);
+    }
+    .preview-header {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--color-border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: var(--color-surface-alt);
+    }
+    .preview-header h2 { font-size: 0.875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--color-text-secondary); }
+    .preview-meta { font-size: 0.75rem; color: var(--color-text-muted); }
+    .preview-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px;
+      font-family: var(--font-mono);
+      font-size: 0.8125rem;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      tab-size: 2;
+    }
+    .preview-actions {
+      padding: 12px 16px;
+      border-top: 1px solid var(--color-border);
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      background: var(--color-surface-alt);
+    }
+    .preview-validation {
+      padding: 12px 16px;
+      border-top: 1px solid var(--color-border);
+      font-size: 0.8125rem;
+    }
+
+    /* ======================================================
+       CARDS / SECTIONS
+       ====================================================== */
+    .card {
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+    }
+    .card-header {
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+      user-select: none;
+      border-bottom: 1px solid transparent;
+      border-radius: var(--radius) var(--radius) 0 0;
+      transition: background var(--transition);
+    }
+    .card-header:hover { background: var(--color-surface-alt); }
+    .card-header.open { border-bottom-color: var(--color-border); }
+    .card-title {
+      font-size: 0.875rem;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .card-title .badge {
+      font-size: 0.6875rem;
+      padding: 1px 6px;
+      border-radius: 10px;
+      font-weight: 500;
+      background: var(--color-primary-light);
+      color: var(--color-primary);
+    }
+    .card-toggle {
+      font-size: 0.75rem;
+      color: var(--color-text-muted);
+      transition: transform var(--transition);
+    }
+    .card-header.open .card-toggle { transform: rotate(180deg); }
+    .card-body { padding: 16px; display: none; }
+    .card-header.open + .card-body { display: block; }
+
+    /* ======================================================
+       FORM ELEMENTS
+       ====================================================== */
+    .form-row { margin-bottom: 12px; }
+    .form-row:last-child { margin-bottom: 0; }
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .form-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+    label {
+      display: block;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--color-text-secondary);
+      margin-bottom: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+    .label-hint {
+      font-weight: 400;
+      text-transform: none;
+      letter-spacing: 0;
+      color: var(--color-text-muted);
+    }
+    input[type="text"],
+    input[type="number"],
+    input[type="time"],
+    select,
+    textarea {
+      width: 100%;
+      padding: 7px 10px;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      font-family: var(--font-sans);
+      font-size: 0.8125rem;
+      color: var(--color-text);
+      background: var(--color-surface);
+      transition: border-color var(--transition), box-shadow var(--transition);
+      outline: none;
+    }
+    input:focus, select:focus, textarea:focus {
+      border-color: var(--color-border-focus);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+    }
+    textarea { resize: vertical; min-height: 60px; }
+    select { cursor: pointer; }
+
+    .help-text {
+      font-size: 0.6875rem;
+      color: var(--color-text-muted);
+      margin-top: 3px;
+    }
+
+    /* ======================================================
+       BUTTONS
+       ====================================================== */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 14px;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      font-family: var(--font-sans);
+      font-size: 0.8125rem;
+      font-weight: 500;
+      cursor: pointer;
+      background: var(--color-surface);
+      color: var(--color-text);
+      transition: all var(--transition);
+    }
+    .btn:hover { background: var(--color-surface-alt); border-color: var(--color-text-muted); }
+    .btn-primary { background: var(--color-primary); color: #fff; border-color: var(--color-primary); }
+    .btn-primary:hover { background: var(--color-primary-hover); border-color: var(--color-primary-hover); }
+    .btn-success { background: var(--color-success); color: #fff; border-color: var(--color-success); }
+    .btn-error { background: var(--color-error); color: #fff; border-color: var(--color-error); }
+    .btn-sm { padding: 4px 10px; font-size: 0.75rem; }
+    .btn-icon {
+      padding: 4px 8px;
+      border: none;
+      background: transparent;
+      color: var(--color-text-muted);
+      cursor: pointer;
+      border-radius: var(--radius-sm);
+      font-size: 1rem;
+      line-height: 1;
+    }
+    .btn-icon:hover { background: var(--color-error-light); color: var(--color-error); }
+    .btn-add {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 6px 12px;
+      border: 1px dashed var(--color-border);
+      border-radius: var(--radius-sm);
+      background: transparent;
+      color: var(--color-primary);
+      font-size: 0.75rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all var(--transition);
+      font-family: var(--font-sans);
+    }
+    .btn-add:hover { border-color: var(--color-primary); background: var(--color-primary-light); }
+
+    /* ======================================================
+       DYNAMIC ITEM CARDS (conditions, variables, expressions)
+       ====================================================== */
+    .item-card {
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      padding: 12px;
+      margin-bottom: 8px;
+      position: relative;
+      background: var(--color-surface-alt);
+    }
+    .item-card .item-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+    .item-card .item-label {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--color-text-secondary);
+    }
+    .item-card .item-fields { display: flex; flex-direction: column; gap: 8px; }
+
+    /* Nested expression indentation */
+    .expression-list { display: flex; flex-direction: column; gap: 8px; }
+    .expression-card { border-left: 3px solid var(--color-primary); }
+    .expression-card.depth-1 { border-left-color: var(--color-warning); }
+    .expression-card.depth-2 { border-left-color: var(--color-success); }
+
+    /* ======================================================
+       TOGGLE SWITCHES
+       ====================================================== */
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .toggle-row label { margin-bottom: 0; cursor: pointer; }
+    .toggle-switch {
+      position: relative;
+      width: 36px;
+      height: 20px;
+      cursor: pointer;
+    }
+    .toggle-switch input { opacity: 0; width: 0; height: 0; }
+    .toggle-slider {
+      position: absolute;
+      inset: 0;
+      background: var(--color-border);
+      border-radius: 10px;
+      transition: var(--transition);
+    }
+    .toggle-slider::before {
+      content: '';
+      position: absolute;
+      width: 16px;
+      height: 16px;
+      left: 2px;
+      top: 2px;
+      background: white;
+      border-radius: 50%;
+      transition: var(--transition);
+    }
+    .toggle-switch input:checked + .toggle-slider { background: var(--color-primary); }
+    .toggle-switch input:checked + .toggle-slider::before { transform: translateX(16px); }
+
+    /* ======================================================
+       DAY-OF-WEEK CHIPS
+       ====================================================== */
+    .day-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+    .day-chip {
+      padding: 5px 12px;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      background: var(--color-surface-alt);
+      color: var(--color-text-secondary);
+      font-size: 0.75rem;
+      font-weight: 600;
+      cursor: pointer;
+      user-select: none;
+      transition: all 0.15s ease;
+    }
+    .day-chip:hover { border-color: var(--color-primary); color: var(--color-text); }
+    .day-chip.selected {
+      background: var(--color-primary-light);
+      border-color: var(--color-primary);
+      color: var(--color-primary);
+    }
+
+    /* ======================================================
+       RADIO GROUP (SINGLE/GROUP toggle)
+       ====================================================== */
+    .radio-group {
+      display: flex;
+      gap: 0;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      overflow: hidden;
+    }
+    .radio-group label {
+      flex: 1;
+      padding: 6px 16px;
+      text-align: center;
+      cursor: pointer;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin: 0;
+      background: var(--color-surface);
+      color: var(--color-text-secondary);
+      border-right: 1px solid var(--color-border);
+      transition: all var(--transition);
+    }
+    .radio-group label:last-child { border-right: none; }
+    .radio-group input { display: none; }
+    .radio-group input:checked + span {
+      display: block;
+      background: var(--color-primary);
+      color: #fff;
+      margin: -6px -16px;
+      padding: 6px 16px;
+    }
+
+    /* ======================================================
+       SYNTAX HIGHLIGHTING (JSON preview)
+       ====================================================== */
+    .json-key { color: #7dd3fc; }
+    .json-string { color: #86efac; }
+    .json-number { color: #fbbf24; }
+    .json-boolean { color: #c084fc; }
+    .json-null { color: #6b7280; }
+    .json-bracket { color: #9ca3b0; }
+
+    /* ======================================================
+       VALIDATION STATUS
+       ====================================================== */
+    .validation-status {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 12px;
+      border-radius: var(--radius-sm);
+      font-size: 0.8125rem;
+      font-weight: 500;
+    }
+    .validation-valid { background: var(--color-success-light); color: var(--color-success); }
+    .validation-invalid { background: var(--color-error-light); color: var(--color-error); }
+    .validation-warning { background: var(--color-warning-light); color: var(--color-warning); }
+    .validation-info { background: var(--color-info-light); color: var(--color-info); }
+    .validation-list { list-style: none; padding: 0; margin: 6px 0 0 0; }
+    .validation-list li {
+      padding: 4px 0;
+      font-size: 0.75rem;
+      color: var(--color-text-secondary);
+      border-bottom: 1px solid var(--color-border);
+    }
+    .validation-list li:last-child { border-bottom: none; }
+
+    /* ======================================================
+       TOAST NOTIFICATION
+       ====================================================== */
+    .toast {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      padding: 10px 20px;
+      background: #e2e4e9;
+      color: #1a1c23;
+      border-radius: var(--radius);
+      font-size: 0.8125rem;
+      font-weight: 500;
+      box-shadow: var(--shadow-md);
+      transform: translateY(100px);
+      opacity: 0;
+      transition: all 300ms ease;
+      z-index: 1000;
+    }
+    .toast.show { transform: translateY(0); opacity: 1; }
+
+    /* ======================================================
+       MISC
+       ====================================================== */
+    .section-divider {
+      border: none;
+      border-top: 1px solid var(--color-border);
+      margin: 12px 0;
+    }
+    .tag-list { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 8px;
+      background: var(--color-primary-light);
+      color: var(--color-primary);
+      border-radius: 12px;
+      font-size: 0.6875rem;
+      font-weight: 500;
+    }
+    .tag .tag-remove {
+      cursor: pointer;
+      font-weight: 700;
+      font-size: 0.75rem;
+      line-height: 1;
+    }
+    .tag .tag-remove:hover { color: var(--color-error); }
+    /* ======================================================
+       RULE LIST
+       ====================================================== */
+    .rule-list-item {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 12px; border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm); cursor: pointer;
+      transition: all var(--transition); background: var(--color-surface);
+    }
+    .rule-list-item:hover { background: var(--color-surface-alt); }
+    .rule-list-item.active {
+      border-color: var(--color-primary);
+      background: var(--color-primary-light);
+    }
+    .rule-list-item .rule-list-id {
+      font-weight: 600; font-size: 0.8125rem; flex: 1;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .rule-list-item .rule-list-scope {
+      font-size: 0.6875rem; padding: 1px 6px; border-radius: 10px;
+      background: var(--color-surface-alt); color: var(--color-text-secondary);
+    }
+    .rule-list-item .rule-list-delete {
+      padding: 2px 6px; border: none; background: transparent;
+      color: var(--color-text-muted); cursor: pointer;
+      border-radius: var(--radius-sm); font-size: 1rem; line-height: 1;
+    }
+    .rule-list-item .rule-list-delete:hover {
+      background: var(--color-error-light); color: var(--color-error);
+    }
+
+    /* ======================================================
+       SCOPE WARNINGS
+       ====================================================== */
+    .scope-warning {
+      margin-top: 6px;
+      padding: 6px 10px;
+      border-radius: var(--radius-sm);
+      background: #fef3c7;
+      border-left: 3px solid #f59e0b;
+      color: #92400e;
+      font-size: 0.75rem;
+      line-height: 1.4;
+    }
+
+    /* ======================================================
+       FIELD ERROR HIGHLIGHT
+       ====================================================== */
+    .field-error {
+      border-color: var(--color-error) !important;
+      box-shadow: 0 0 0 3px var(--color-error-light) !important;
+    }
+    .card.card-error {
+      border-color: var(--color-error);
+      box-shadow: 0 0 0 2px var(--color-error-light);
+    }
+
+    .hidden { display: none !important; }
+    .scope-hint {
+      font-size: 0.6875rem;
+      padding: 4px 8px;
+      border-radius: var(--radius-sm);
+      margin-top: 4px;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ======================================================
+       HEADER
+       ====================================================== -->
+  <header class="app-header">
+    <h1><span>AI Engine</span> Rule Builder</h1>
+    <div class="header-actions">
+      <select id="template-select" title="Load a template rule">
+        <option value="">Load Template...</option>
+      </select>
+      <button class="btn btn-sm btn-primary" onclick="addNewRule()" title="Add a new rule">+ New Rule</button>
+      <button class="btn btn-sm" onclick="resetForm()" title="Clear all rules">Clear All</button>
+    </div>
+  </header>
+
+  <!-- ======================================================
+       MAIN LAYOUT
+       ====================================================== -->
+  <main class="app-main">
+
+    <!-- ============================
+         FORM PANEL
+         ============================ -->
+    <div class="form-panel" id="form-panel">
+
+      <!-- RULE LIST -->
+      <div class="card" id="section-rule-list">
+        <div class="card-header open" onclick="toggleCard(this)">
+          <span class="card-title">Rules <span class="badge" id="rule-count-badge">1</span></span>
+          <span class="card-toggle">&#9660;</span>
+        </div>
+        <div class="card-body" style="padding:8px 16px">
+          <div id="rule-list" style="display:flex;flex-direction:column;gap:4px;margin-bottom:8px"></div>
+          <button class="btn-add" onclick="addNewRule()" style="width:100%">+ Add Rule</button>
+        </div>
+      </div>
+
+      <!-- RULE BASICS -->
+      <div class="card" id="section-basics">
+        <div class="card-header open" onclick="toggleCard(this)">
+          <span class="card-title">Rule Basics <span class="badge">Required</span></span>
+          <span class="card-toggle">&#9660;</span>
+        </div>
+        <div class="card-body">
+          <div class="form-grid">
+            <div class="form-row">
+              <label for="rule-id">Rule ID</label>
+              <input type="text" id="rule-id" placeholder="e.g. speed_warning" oninput="onFormChange()">
+            </div>
+            <div class="form-row">
+              <label for="rule-scope">Session Scope</label>
+              <select id="rule-scope" onchange="onFormChange(); showScopeHint()">
+                <option value="global">global</option>
+                <option value="daily">daily</option>
+                <option value="trip">trip</option>
+              </select>
+              <div id="scope-hint" class="scope-hint help-text"></div>
+            </div>
+          </div>
+          <div class="form-row">
+            <label for="rule-description">Description <span class="label-hint">(optional)</span></label>
+            <textarea id="rule-description" rows="2" placeholder="Human-readable description" oninput="onFormChange()"></textarea>
+          </div>
+          <div class="form-grid">
+            <div class="form-row">
+              <label for="rule-priority">Priority <span class="label-hint">(0-10)</span></label>
+              <input type="number" id="rule-priority" min="0" max="10" value="0" oninput="onFormChange()">
+              <div class="help-text">10 = life-threatening, 7 = standard, 0 = lowest</div>
+            </div>
+            <div></div>
+          </div>
+          <hr class="section-divider">
+          <div class="form-grid">
+            <div class="form-row">
+              <label for="throttle-cooldown">Cooldown <span class="label-hint">(minutes)</span></label>
+              <input type="number" id="throttle-cooldown" min="0" value="30" placeholder="30" oninput="onFormChange()">
+            </div>
+            <div class="form-row">
+              <label for="throttle-max">Max Triggers/Day</label>
+              <input type="number" id="throttle-max" min="1" value="3" placeholder="3" oninput="onFormChange()">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TRIGGER EXPRESSION -->
+      <div class="card" id="section-trigger">
+        <div class="card-header open" onclick="toggleCard(this)">
+          <span class="card-title">Trigger Expression <span class="badge">Required</span></span>
+          <span class="card-toggle">&#9660;</span>
+        </div>
+        <div class="card-body">
+          <div id="trigger-root"></div>
+        </div>
+      </div>
+
+      <!-- OUTPUT (LLM PROMPT) -->
+      <div class="card" id="section-output">
+        <div class="card-header open" onclick="toggleCard(this)">
+          <span class="card-title">Output <span class="label-hint" style="text-transform:none;font-weight:400">(LLM Prompt)</span></span>
+          <span class="card-toggle">&#9660;</span>
+        </div>
+        <div class="card-body">
+          <div class="toggle-row">
+            <label class="toggle-switch">
+              <input type="checkbox" id="output-enabled" checked onchange="toggleOutputSection(); onFormChange()">
+              <span class="toggle-slider"></span>
+            </label>
+            <label for="output-enabled" style="text-transform:none;font-weight:400;color:var(--color-text)">Enable output section</label>
+          </div>
+          <div id="output-fields">
+            <div class="form-row">
+              <label for="output-instructions">Instructions</label>
+              <textarea id="output-instructions" rows="3" placeholder="What to tell the LLM..." oninput="onFormChange(); updateVariablesAvailability()"></textarea>
+            </div>
+            <div class="form-row">
+              <label for="output-tone">Tone <span class="label-hint">(optional, free text)</span></label>
+              <input type="text" id="output-tone" list="tone-suggestions" placeholder="e.g. calm & friendly, or type your own" oninput="onFormChange(); updateVariablesAvailability()">
+              <datalist id="tone-suggestions">
+                <option value="calm & friendly">
+                <option value="calm & warm">
+                <option value="calm and concerned">
+                <option value="calm and caring">
+                <option value="calm and urgent">
+                <option value="calm and informative">
+                <option value="professional & friendly">
+                <option value="professional and urgent">
+                <option value="professional and encouraging">
+                <option value="energetic and friendly">
+                <option value="helpful and friendly">
+                <option value="motivational and encouraging">
+                <option value="friendly and warm">
+              </datalist>
+              <div class="help-text">Type any tone you want — suggestions are just common examples. This is passed directly to the LLM.</div>
+            </div>
+            <hr class="section-divider">
+            <div id="variables-section" class="hidden">
+              <label>Variables <span class="label-hint">(data to include in prompt)</span></label>
+              <div class="help-text">Variables extract data from the event buffer when the rule fires. If data is not present, it's simply omitted from the LLM output — the rule still fires normally.</div>
+              <div id="variables-list"></div>
+              <button class="btn-add" id="add-variable-btn" onclick="addVariable()" style="margin-top:8px">+ Add Variable</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ============================
+         PREVIEW PANEL
+         ============================ -->
+    <div class="preview-panel">
+      <div class="preview-header">
+        <h2>JSON Preview</h2>
+        <span class="preview-meta" id="preview-meta"></span>
+      </div>
+      <div class="preview-body" id="preview-body">
+        <span class="json-bracket">[</span>
+        <br>
+        <span class="json-bracket">]</span>
+      </div>
+      <div class="preview-validation" id="preview-validation"></div>
+      <div class="preview-actions">
+        <button class="btn btn-primary" onclick="validateAndShow()">Validate</button>
+        <button class="btn" onclick="copyJSON()">Copy JSON</button>
+        <button class="btn" onclick="downloadJSON()">Download</button>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Toast -->
+  <div class="toast" id="toast"></div>
+
+  <!-- ======================================================
+       JAVASCRIPT — loaded as separate files for readability.
+       config.js must load before app.js (app depends on config constants).
+       ====================================================== -->
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+
+</body>
+</html>

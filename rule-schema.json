@@ -1,0 +1,444 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "rule-schema.json",
+  "title": "AICompanionEngine Rule Configuration",
+  "description": "Formal JSON Schema for AICompanionEngine rule JSON. Single source of truth for rule creation, validation, and form generation. Engine version 0.0.48. See JSON_RULE_STRUCTURE.md for full documentation.",
+  "type": "array",
+  "minItems": 1,
+  "items": {
+    "$ref": "#/definitions/rule"
+  },
+
+  "definitions": {
+
+    "rule": {
+      "type": "object",
+      "description": "A single rule definition. Must have either 'output' or 'actions' (or both).",
+      "required": ["id", "triggerExpression"],
+      "anyOf": [
+        { "required": ["output"] },
+        { "required": ["actions"] }
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Unique rule identifier."
+        },
+        "description": {
+          "type": "string",
+          "description": "Human-readable description of what the rule does."
+        },
+        "sessionScope": {
+          "$ref": "#/definitions/sessionScope"
+        },
+        "priority": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10,
+          "default": 0,
+          "description": "Rule priority. 10 = life-threatening, 7 = standard, 0 = lowest."
+        },
+        "throttle": {
+          "$ref": "#/definitions/throttle"
+        },
+        "triggerExpression": {
+          "$ref": "#/definitions/triggerExpression"
+        },
+        "output": {
+          "$ref": "#/definitions/output"
+        },
+        "actions": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/action" },
+          "description": "Top-level mobile app commands executed when rule fires."
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "sessionScope": {
+      "type": "string",
+      "enum": ["global", "daily", "trip"],
+      "default": "global",
+      "description": "Session lifetime. global = app lifetime, daily = 24h reset, trip = until endTrip(). Case-insensitive in engine."
+    },
+
+    "throttle": {
+      "type": "object",
+      "description": "Rate-limiting configuration for rule firing.",
+      "properties": {
+        "cooldownMinutes": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Minutes to wait between triggers. 0 = can fire again immediately."
+        },
+        "maxTriggersPerDay": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum times this rule can fire per day. Resets at day boundary."
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "triggerExpression": {
+      "description": "What events must occur for the rule to fire. Either a SINGLE event or a GROUP of expressions.",
+      "oneOf": [
+        { "$ref": "#/definitions/singleTrigger" },
+        { "$ref": "#/definitions/groupTrigger" }
+      ]
+    },
+
+    "singleTrigger": {
+      "type": "object",
+      "description": "Matches one specific event from one data source.",
+      "required": ["type", "id", "dataSource"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "SINGLE"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Event name (non-API sources) or trigger ID (API sources). Must be a predefined value — see JSON_RULE_STRUCTURE.md."
+        },
+        "dataSource": {
+          "$ref": "#/definitions/dataSource"
+        },
+        "conditions": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/condition" },
+          "default": [],
+          "description": "Filter conditions. All conditions use AND logic."
+        },
+        "extractedParameters": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Parameter names to extract from matched events."
+        },
+        "POI": {
+          "$ref": "#/definitions/poi"
+        },
+        "dateRangeInDays": {
+          "type": "integer",
+          "enum": [1, 7, 30],
+          "description": "Time period for API data retrieval. Default 1. Only for DRIVER_MEASUREMENTS_SCORE, TRIP_EVENTS, TRIP_DETAILS."
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "groupTrigger": {
+      "type": "object",
+      "description": "Combines multiple trigger expressions with AND/OR logic. Can be nested.",
+      "required": ["type", "groupType", "expressions"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "GROUP"
+        },
+        "groupType": {
+          "type": "string",
+          "enum": ["AND", "OR"],
+          "description": "AND = all must match, OR = at least one matches."
+        },
+        "expressions": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/definitions/triggerExpression" },
+          "description": "Array of SINGLE or nested GROUP expressions."
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "dataSource": {
+      "type": "string",
+      "enum": [
+        "SmartDrive",
+        "BLE",
+        "POI",
+        "DateTime",
+        "Phone",
+        "Wellness",
+        "UserCommand",
+        "MZONE",
+        "GZONE",
+        "External Source"
+      ],
+      "description": "Event origin. Case-insensitive in engine. API sources: MZONE, GZONE, External Source."
+    },
+
+    "condition": {
+      "description": "Filter condition on a trigger expression. Discriminated by 'type' field.",
+      "oneOf": [
+        { "$ref": "#/definitions/valueCondition" },
+        { "$ref": "#/definitions/timeRangeCondition" },
+        { "$ref": "#/definitions/timeCondition" },
+        { "$ref": "#/definitions/comparisonCondition" },
+        { "$ref": "#/definitions/eventCountCondition" },
+        { "$ref": "#/definitions/relativeTimeWindowCondition" }
+      ]
+    },
+
+    "valueCondition": {
+      "type": "object",
+      "description": "Compares an event parameter against a value.",
+      "required": ["type", "parameter", "operator", "value"],
+      "properties": {
+        "type": { "type": "string", "const": "Value" },
+        "parameter": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Event parameter name to compare (e.g. 'speed', 'hour', 'poi_type')."
+        },
+        "operator": { "$ref": "#/definitions/operator" },
+        "value": {
+          "description": "Comparison value. String/number/boolean for most operators, array of strings for 'in'.",
+          "oneOf": [
+            { "type": "string" },
+            { "type": "number" },
+            { "type": "boolean" },
+            { "type": "array", "items": { "type": "string" } }
+          ]
+        },
+        "source": {
+          "type": "string",
+          "description": "Optional source identifier for filtering (e.g. 'MHUB', 'Beacon' for BLE)."
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "timeRangeCondition": {
+      "type": "object",
+      "description": "Checks if current UTC time falls within a range. Handles midnight crossing automatically.",
+      "required": ["type", "from", "to"],
+      "properties": {
+        "type": { "type": "string", "const": "TimeRange" },
+        "from": {
+          "type": "string",
+          "pattern": "^\\d{1,2}:\\d{2}$",
+          "description": "Start time in HH:MM 24-hour UTC format."
+        },
+        "to": {
+          "type": "string",
+          "pattern": "^\\d{1,2}:\\d{2}$",
+          "description": "End time in HH:MM 24-hour UTC format."
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "timeCondition": {
+      "type": "object",
+      "description": "Compares the current UTC time against a single value. No event in buffer required.",
+      "required": ["type", "operator", "value"],
+      "properties": {
+        "type": { "type": "string", "const": "Time" },
+        "operator": { "$ref": "#/definitions/operator" },
+        "value": {
+          "type": "string",
+          "pattern": "^\\d{1,2}:\\d{2}$",
+          "description": "Time in HH:MM 24-hour UTC format."
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "comparisonCondition": {
+      "type": "object",
+      "description": "Compares values across two time periods (e.g. this month vs last month). Requires 'parameter' or 'leaderboardId' (or both).",
+      "required": ["type", "firstPeriod", "secondPeriod", "operator", "value"],
+      "anyOf": [
+        { "required": ["parameter"] },
+        { "required": ["leaderboardId"] }
+      ],
+      "properties": {
+        "type": { "type": "string", "const": "Comparison" },
+        "parameter": {
+          "type": "string",
+          "description": "Field to compare (e.g. 'score', 'position')."
+        },
+        "leaderboardId": {
+          "type": "string",
+          "description": "Leaderboard ID. Required if parameter is absent."
+        },
+        "firstPeriod": { "$ref": "#/definitions/timePeriod" },
+        "secondPeriod": { "$ref": "#/definitions/timePeriod" },
+        "operator": { "$ref": "#/definitions/operator" },
+        "value": {
+          "type": "string",
+          "description": "Threshold for the difference between periods."
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "eventCountCondition": {
+      "type": "object",
+      "description": "Counts occurrences of a specific event in the current session.",
+      "required": ["type", "eventName", "operator", "value"],
+      "properties": {
+        "type": { "type": "string", "const": "EventCount" },
+        "eventName": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Event name to count (e.g. 'driving_behaviour_event_braking')."
+        },
+        "operator": { "$ref": "#/definitions/operator" },
+        "value": {
+          "type": "integer",
+          "description": "Threshold count."
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "relativeTimeWindowCondition": {
+      "type": "object",
+      "description": "Checks if a timestamp parameter falls within a time window from now.",
+      "required": ["type", "parameter", "fromNow"],
+      "properties": {
+        "type": { "type": "string", "const": "RelativeTimeWindow" },
+        "parameter": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Event parameter containing a timestamp."
+        },
+        "fromNow": {
+          "type": "string",
+          "pattern": "^[+-]?\\d+[hdm]$",
+          "description": "Time offset. '1h' = within 1h future, '-4h' = within 4h past, '30m' = 30min, '-2d' = 2 days ago."
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "operator": {
+      "type": "string",
+      "enum": ["==", "!=", "<", "<=", ">", ">=", "in"],
+      "description": "Comparison operator. 'in' requires value to be an array of strings."
+    },
+
+    "timePeriod": {
+      "type": "string",
+      "enum": ["currentMonth", "lastMonth", "currentWeek", "lastWeek"],
+      "description": "Time period for Comparison conditions."
+    },
+
+    "poi": {
+      "type": "object",
+      "description": "Point of Interest configuration for location-based triggers.",
+      "required": ["radius"],
+      "properties": {
+        "coordinates": {
+          "type": "object",
+          "properties": {
+            "lat": { "type": "number", "default": 0.0 },
+            "lng": { "type": "number", "default": 0.0 }
+          },
+          "additionalProperties": false
+        },
+        "radius": {
+          "type": "string",
+          "description": "Geofence radius in meters."
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "output": {
+      "type": "object",
+      "description": "LLM prompt configuration. The engine constructs: instructions + tone + resolved variables + wellness auto-context.",
+      "required": ["instructions"],
+      "properties": {
+        "instructions": {
+          "type": "string",
+          "minLength": 1,
+          "description": "What to tell the LLM. Reference data naturally — variables are appended automatically."
+        },
+        "tone": {
+          "type": "string",
+          "description": "Desired tone (e.g. 'calm & friendly', 'professional and urgent')."
+        },
+        "variables": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/variable" },
+          "description": "Data to extract and include in the LLM prompt."
+        },
+        "actions": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/action" },
+          "description": "Actions embedded in output (combined with LLM prompt)."
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "variable": {
+      "type": "object",
+      "description": "Defines what data to extract from events/APIs and include in the LLM prompt.",
+      "required": ["dataSource"],
+      "anyOf": [
+        { "required": ["id"] },
+        { "required": ["value"] }
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Variable identifier used as key in prompt. Special IDs: 'firstname', 'get_todays_jobs', 'fuel_range', 'current_location', 'job_details'."
+        },
+        "dataSource": {
+          "type": "string",
+          "description": "Where to get data (e.g. 'MZONE', 'SmartDrive', 'External Source')."
+        },
+        "timePeriod": {
+          "type": "string",
+          "description": "Time period (e.g. 'currentMonth')."
+        },
+        "source": {
+          "type": "string",
+          "description": "JSON key of array/object in API response (e.g. 'jobs', 'value', '_rawJobs')."
+        },
+        "fields": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Specific fields to extract from each object (uses FieldExtractor)."
+        },
+        "triggerId": {
+          "type": "string",
+          "description": "Links variable to a specific trigger expression ID. Disambiguates multiple API calls to same dataSource."
+        },
+        "filters": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/valueCondition" },
+          "description": "Filter conditions (AND logic) applied to array elements before extraction."
+        },
+        "value": {
+          "type": "string",
+          "description": "Static value with $ prefix for extracted parameters (e.g. '$question')."
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "action": {
+      "type": "object",
+      "description": "Mobile app command. Known types: SetReminder, APICall, PhoneCall, OpenScreen. All extra fields are passed as parameters to mobile.",
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Action type identifier."
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}
