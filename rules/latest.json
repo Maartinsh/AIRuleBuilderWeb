@@ -1,0 +1,19 @@
+{
+  "_meta": {
+    "publishedAt": "2026-03-11T10:32:03.642Z",
+    "ruleCount": 1
+  },
+  "rules": [
+    {
+      "sessionScope": "global",
+      "throttle": {
+        "cooldownMinutes": 30,
+        "maxTriggersPerDay": 3
+      },
+      "triggerExpression": {
+        "type": "SINGLE",
+        "dataSource": "SmartDrive"
+      }
+    }
+  ]
+}
