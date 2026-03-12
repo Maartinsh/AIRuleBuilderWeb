@@ -2320,12 +2320,10 @@ async function init() {
   await loadSchema();
   populateTemplateDropdown();
 
-  rules = [{}];
+  rules = [{ id: 'rule_1', sessionScope: 'global', triggerExpression: { type: 'GROUP', groupType: 'AND' } }];
   activeRuleIndex = 0;
 
-  const triggerRoot = document.getElementById('trigger-root');
-  renderTriggerExpression(triggerRoot, 0);
-
+  populateFormFromRule(rules[0]);
   showScopeHint();
   renderRuleList();
   updatePreview();
