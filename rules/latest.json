@@ -1,23 +1,29 @@
 {
   "_meta": {
-    "publishedAt": "2026-03-12T09:37:22.054Z",
+    "publishedAt": "2026-03-12T10:29:21.545Z",
     "ruleCount": 1
   },
   "rules": [
     {
-      "id": "tete",
-      "description": "aaaa",
+      "id": "aaa",
       "sessionScope": "global",
       "throttle": {
         "cooldownMinutes": 30,
         "maxTriggersPerDay": 3
       },
       "output": {
-        "instructions": "innnstruuuctions"
+        "instructions": "aaa",
+        "tone": "helpful and friendly",
+        "variables": [
+          {
+            "dataSource": "MZONE",
+            "id": "count"
+          }
+        ]
       },
       "triggerExpression": {
         "type": "SINGLE",
-        "id": "trip_started",
+        "id": "trip_ended",
         "dataSource": "SmartDrive"
       }
     }
