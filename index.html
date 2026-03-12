@@ -616,20 +616,10 @@
 
     <!-- Left side: publish actions -->
     <div style="display:flex;align-items:center;gap:8px;flex:1;margin-left:24px">
-      <div class="publish-group">
+      <div class="publish-group" style="position:relative;display:flex;gap:2px">
         <button class="btn btn-sm btn-publish" id="publish-btn" onclick="publishRules()">&#8593; Publish</button>
-      </div>
-      <a class="btn btn-sm" href="publish.html" target="_blank" style="background:var(--color-surface-alt)">View Published Rules ↗</a>
-      <span class="publish-status" id="publish-status"></span>
-    </div>
-
-    <!-- Right side: editor actions + token settings -->
-    <div class="header-actions">
-      <button class="btn btn-sm btn-primary" onclick="addNewRule()">+ New Rule</button>
-      <button class="btn btn-sm" onclick="resetForm()">Clear All</button>
-      <div style="position:relative">
-        <button class="btn btn-sm" id="ae-btn" onclick="toggleCfgPanel()" title="GitHub token settings" style="padding:0 10px">
-          ⚙ <span class="ae-dot" id="ae-dot"></span>
+        <button class="btn btn-sm btn-publish" id="ae-btn" onclick="toggleCfgPanel()" title="GitHub token settings" style="padding:0 8px;border-left:1px solid rgba(255,255,255,0.15)">
+          ⚙<span class="ae-dot" id="ae-dot" style="margin-left:3px"></span>
         </button>
         <div class="ae-panel" id="ae-panel">
           <h4>GitHub Publish Token</h4>
@@ -647,6 +637,14 @@
           </div>
         </div>
       </div>
+      <a class="btn btn-sm" href="publish.html" target="_blank" style="background:var(--color-surface-alt)">View Published Rules ↗</a>
+      <span class="publish-status" id="publish-status"></span>
+    </div>
+
+    <!-- Right side: editor actions -->
+    <div class="header-actions">
+      <button class="btn btn-sm btn-primary" onclick="addNewRule()">+ New Rule</button>
+      <button class="btn btn-sm" onclick="resetForm()">Clear All</button>
     </div>
   </header>
 
