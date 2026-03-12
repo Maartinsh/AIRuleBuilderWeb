@@ -353,9 +353,7 @@ function renderSingleTrigger(container, depth, data = null) {
       idContainer.append(sel);
     } else {
       const scope = document.getElementById('rule-scope')?.value || 'global';
-      const allIds = TRIGGER_IDS[ds] || [];
-      // Aggressively remove trip-only events when scope is not trip
-      const ids = scope === 'trip' ? allIds : allIds.filter(id => !TRIP_ONLY_EVENTS.includes(id));
+      const ids = TRIGGER_IDS[ds] || [];
 
       if (ids.length === 0) {
         // Free text (UserCommand or unknown)
@@ -364,13 +362,17 @@ function renderSingleTrigger(container, depth, data = null) {
         if (prevValue) input.value = prevValue;
         idContainer.append(input);
       } else {
-        // Proper <select> dropdown — trip-only IDs are not listed for non-trip rules
+        // Proper <select> dropdown — trip-only IDs are disabled (not hidden) for non-trip rules
         const sel = h('select', {});
         sel.dataset.field = 'triggerId';
         sel.append(h('option', { value: '' }, '\u2014 Select trigger ID \u2014'));
-        for (const id of ids) sel.append(h('option', { value: id }, id));
-        // Restore previous value only if it's still in the filtered list
-        if (prevValue && ids.includes(prevValue)) sel.value = prevValue;
+        for (const id of ids) {
+          const isTripOnly = scope !== 'trip' && TRIP_ONLY_EVENTS.includes(id);
+          const opt = h('option', { value: id }, isTripOnly ? `${id} (trip scope only)` : id);
+          if (isTripOnly) opt.disabled = true;
+          sel.append(opt);
+        }
+        if (prevValue) sel.value = prevValue;
         sel.addEventListener('change', onFormChange);
         idContainer.append(sel);
       }
