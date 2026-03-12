@@ -330,8 +330,9 @@ function renderSingleTrigger(container, depth, data = null) {
   idContainer.append(idLabel);
 
   function buildIdInput(ds) {
-    // Remove old input/select
+    // Capture current value before removing old element
     const old = idContainer.querySelector('[data-field="triggerId"]');
+    const prevValue = old ? old.value : (data?.id || '');
     if (old) old.remove();
     const oldList = idContainer.querySelector('datalist');
     if (oldList) oldList.remove();
@@ -348,27 +349,36 @@ function renderSingleTrigger(container, depth, data = null) {
       for (const ep of endpoints) {
         sel.append(h('option', { value: ep.id }, `${ep.label} \u2014 ${ep.description}`));
       }
-      if (data?.id) sel.value = data.id;
+      if (prevValue) sel.value = prevValue;
       idContainer.append(sel);
     } else {
-      const ids = TRIGGER_IDS[ds] || [];
+      const scope = document.getElementById('rule-scope')?.value || 'global';
+      const allIds = TRIGGER_IDS[ds] || [];
+      // Aggressively remove trip-only events when scope is not trip
+      const ids = scope === 'trip' ? allIds : allIds.filter(id => !TRIP_ONLY_EVENTS.includes(id));
+
       if (ids.length === 0) {
         // Free text (UserCommand or unknown)
         const input = h('input', { type: 'text', placeholder: 'Enter trigger ID', onInput: 'onFormChange()' });
         input.dataset.field = 'triggerId';
-        if (data?.id) input.value = data.id;
+        if (prevValue) input.value = prevValue;
         idContainer.append(input);
       } else {
-        // Proper <select> dropdown
+        // Proper <select> dropdown — trip-only IDs are not listed for non-trip rules
         const sel = h('select', {});
         sel.dataset.field = 'triggerId';
         sel.append(h('option', { value: '' }, '\u2014 Select trigger ID \u2014'));
         for (const id of ids) sel.append(h('option', { value: id }, id));
-        if (data?.id) sel.value = data.id;
+        // Restore previous value only if it's still in the filtered list
+        if (prevValue && ids.includes(prevValue)) sel.value = prevValue;
+        sel.addEventListener('change', onFormChange);
         idContainer.append(sel);
       }
     }
   }
+
+  // Expose so scope changes can trigger a rebuild without clearing data source
+  container._rebuildIdInput = () => buildIdInput(dsSelect.value);
 
   dsSelect.addEventListener('change', () => {
     buildIdInput(dsSelect.value);
@@ -2310,6 +2320,24 @@ async function publishRules() {
     btn.disabled = false;
     btn.textContent = '↑ Publish';
   }
+}
+
+/* =========================================================
+   SCOPE-AWARE TRIGGER ID REFRESH
+   ========================================================= */
+
+/**
+ * Rebuilds all trigger ID dropdowns in the current rule form using the
+ * current rule scope. Called whenever the scope selector changes so that
+ * trip-only events are immediately removed (or restored) without the user
+ * having to touch each trigger card manually.
+ */
+function refreshScopedTriggerIds() {
+  document.querySelectorAll('[data-field="triggerList"] .item-card:not([data-is-group="true"])').forEach(card => {
+    const triggerContainer = card.querySelector(':scope > div:last-child');
+    if (triggerContainer?._rebuildIdInput) triggerContainer._rebuildIdInput();
+  });
+  onFormChange();
 }
 
 /* =========================================================
