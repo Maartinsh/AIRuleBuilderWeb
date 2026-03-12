@@ -1,21 +1,23 @@
 {
   "_meta": {
-    "publishedAt": "2026-03-11T10:42:08.175Z",
+    "publishedAt": "2026-03-12T09:37:22.054Z",
     "ruleCount": 1
   },
   "rules": [
     {
-      "id": "test rule",
+      "id": "tete",
+      "description": "aaaa",
       "sessionScope": "global",
       "throttle": {
         "cooldownMinutes": 30,
         "maxTriggersPerDay": 3
       },
       "output": {
-        "instructions": "test output"
+        "instructions": "innnstruuuctions"
       },
       "triggerExpression": {
         "type": "SINGLE",
+        "id": "trip_started",
         "dataSource": "SmartDrive"
       }
     }
