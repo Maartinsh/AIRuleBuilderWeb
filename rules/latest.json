@@ -1,29 +1,68 @@
 {
   "_meta": {
-    "publishedAt": "2026-03-12T11:44:08.317Z",
-    "ruleCount": 1
+    "publishedAt": "2026-03-12T15:03:09.456Z",
+    "ruleCount": 2
   },
   "rules": [
     {
-      "id": "bbb",
+      "id": "rule_1",
+      "description": "Rule 1 description",
+      "sessionScope": "trip",
+      "throttle": {
+        "cooldownMinutes": 30,
+        "maxTriggersPerDay": 3
+      },
+      "output": {
+        "instructions": "test instruction",
+        "tone": "motivational and encouraging"
+      },
+      "triggerExpression": {
+        "type": "GROUP",
+        "groupType": "AND",
+        "expressions": [
+          {
+            "type": "SINGLE",
+            "id": "trip_duration",
+            "dataSource": "SmartDrive",
+            "conditions": [
+              {
+                "type": "Value",
+                "parameter": "duration",
+                "operator": ">",
+                "value": 120
+              }
+            ]
+          },
+          {
+            "type": "SINGLE",
+            "id": "trip_distance",
+            "dataSource": "SmartDrive",
+            "conditions": [
+              {
+                "type": "Value",
+                "parameter": "distance",
+                "operator": ">",
+                "value": 500
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "rule_2",
+      "description": "Rule 2 description",
       "sessionScope": "global",
       "throttle": {
         "cooldownMinutes": 30,
         "maxTriggersPerDay": 3
       },
       "output": {
-        "instructions": "bbb",
-        "tone": "helpful and friendly",
-        "variables": [
-          {
-            "dataSource": "MZONE",
-            "id": "count"
-          }
-        ]
+        "instructions": "Trip started, woohooo"
       },
       "triggerExpression": {
         "type": "SINGLE",
-        "id": "trip_ended",
+        "id": "trip_started",
         "dataSource": "SmartDrive"
       }
     }
