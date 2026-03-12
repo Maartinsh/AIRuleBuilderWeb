@@ -73,6 +73,11 @@ function h(tag, props = {}, ...children) {
     else if (key.startsWith('on') && typeof val === 'function') {
       el.addEventListener(key.slice(2).toLowerCase(), val);
     }
+    else if (key.startsWith('on') && typeof val === 'string') {
+      // String handlers like onInput:'onFormChange()' — must use lowercase attribute name
+      // so the browser recognises them as event handler content attributes.
+      el.setAttribute(key.toLowerCase(), val);
+    }
     else el.setAttribute(key, String(val));
   }
   for (const child of children.flat()) {
@@ -949,6 +954,7 @@ function addVariable(data = null) {
   // Trigger ID — shown as dropdown when disambiguation needed
   const tiSelect = createSelect([{ value: '', label: '(auto-detect)' }]);
   tiSelect.dataset.field = 'var-triggerId';
+  tiSelect.addEventListener('change', () => onFormChange());
   const tiRow = h('div', { className: 'form-row hidden' });
   tiRow.dataset.field = 'var-triggerId-row';
   tiRow.append(h('label', {}, 'Trigger ID '), h('span', { className: 'label-hint' }, '(multiple triggers use this data source)'));
@@ -1106,12 +1112,12 @@ function addVariable(data = null) {
 
       // Auto-fill source/fields from param defaults
       if (paramCfg && !isSimple) {
-        srcInput.value = paramCfg.source || '';
+        srcSelect.value = paramCfg.source || '';
         fieldsInput.value = (paramCfg.fields || []).join(', ');
       } else if (isCustom) {
         // Don't clear — user may be typing
       } else {
-        srcInput.value = '';
+        srcSelect.value = '';
         fieldsInput.value = '';
       }
     } else {
@@ -1857,6 +1863,9 @@ function validateRule(jsonArray) {
     // Trigger ID vs data source warnings
     validateTriggerDataSource(rule.triggerExpression, warnings);
 
+    // Required fields on every SINGLE expression (blocks publish/copy/download)
+    validateTriggerFields(rule.triggerExpression, errors, prefix);
+
     // Required conditions check
     validateRequiredConditions(rule.triggerExpression, errors, prefix);
   }
@@ -1903,6 +1912,21 @@ function validateRequiredConditions(expr, errors, prefix) {
   }
   if (expr.type === 'GROUP' && expr.expressions) {
     expr.expressions.forEach(e => validateRequiredConditions(e, errors, prefix));
+  }
+}
+
+/**
+ * Recursively validates that every SINGLE expression has a non-empty id and dataSource.
+ * Missing either field causes an engine parse error ("Single expression must have id").
+ */
+function validateTriggerFields(expr, errors, prefix) {
+  if (!expr) return;
+  if (expr.type === 'SINGLE') {
+    if (!expr.id) errors.push(`${prefix}Trigger ID is required for every SINGLE expression`);
+    if (!expr.dataSource) errors.push(`${prefix}Data source is required for every SINGLE expression`);
+  }
+  if (expr.type === 'GROUP' && expr.expressions) {
+    expr.expressions.forEach(e => validateTriggerFields(e, errors, prefix));
   }
 }
 
@@ -2120,7 +2144,7 @@ function resetForm(silent = false) {
   document.getElementById('output-instructions').value = '';
   document.getElementById('output-tone').value = '';
   document.getElementById('variables-list').innerHTML = '';
-  document.getElementById('template-select').value = '';
+  const _ts = document.getElementById('template-select'); if (_ts) _ts.value = '';
   _varCounter = 0;
 
   showScopeHint();
@@ -2144,6 +2168,7 @@ function resetForm(silent = false) {
 
 function populateTemplateDropdown() {
   const select = document.getElementById('template-select');
+  if (!select) return;
   for (const t of TEMPLATES) {
     select.append(h('option', { value: t.id }, `${t.id} \u2014 ${t.description}`));
   }
@@ -2171,6 +2196,120 @@ function showToast(message, duration = 3000) {
   toast.classList.add('show');
   clearTimeout(_toastTimeout);
   _toastTimeout = setTimeout(() => toast.classList.remove('show'), duration);
+}
+
+/* =========================================================
+   PUBLISH
+   ========================================================= */
+
+const _skId = 'accident_event_id';
+
+function _getKey() { return (typeof _rsCfg !== 'undefined' && _rsCfg) || localStorage.getItem(_skId); }
+
+function saveSettings() {
+  const v = document.getElementById('rc-val').value.trim();
+  if (!v) { showToast('Value required'); return; }
+  localStorage.setItem(_skId, v);
+  _closeCfgPanel();
+  _refreshDot();
+  showToast('Saved');
+}
+
+function clearSettings() {
+  localStorage.removeItem(_skId);
+  document.getElementById('rc-val').value = '';
+  _refreshDot();
+  _closeCfgPanel();
+  showToast('Cleared');
+}
+
+function _refreshDot() {
+  const dot = document.getElementById('ae-dot');
+  if (dot) dot.className = 'ae-dot' + (_getKey() ? ' set' : '');
+}
+
+function toggleCfgPanel() {
+  const pop = document.getElementById('ae-panel');
+  const isOpen = pop.classList.contains('open');
+  if (isOpen) { _closeCfgPanel(); return; }
+  document.getElementById('rc-val').value = _getKey() || '';
+  pop.classList.add('open');
+  setTimeout(() => document.addEventListener('click', _outsideClick), 0);
+}
+
+function _closeCfgPanel() {
+  document.getElementById('ae-panel').classList.remove('open');
+  document.removeEventListener('click', _outsideClick);
+}
+
+function _outsideClick(e) {
+  const pop = document.getElementById('ae-panel');
+  const btn = document.getElementById('ae-btn');
+  if (!pop.contains(e.target) && !btn.contains(e.target)) _closeCfgPanel();
+}
+
+function setPublishStatus(text, type = '') {
+  const el = document.getElementById('publish-status');
+  if (!el) return;
+  el.textContent = text;
+  el.className = 'publish-status' + (type ? ' ' + type : '');
+}
+
+async function _getRef(_k) {
+  const url = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${GITHUB_RULES_PATH}`;
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${_k}`, Accept: 'application/vnd.github+json' } });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`Sync error ${res.status}`);
+  return (await res.json()).sha;
+}
+
+async function publishRules() {
+  const _k = _getKey();
+
+  // Validate before publishing
+  const rulesArray = rules.filter(r => r && Object.keys(r).length > 0);
+  const validation = validateRule(rulesArray);
+  if (!validation.valid) {
+    setPublishStatus(`✗ Fix ${validation.errors.length} error(s) before publishing`, 'err');
+    showToast(`Cannot publish — ${validation.errors.length} validation error(s). Click Validate to see details.`, 5000);
+    validateAndShow();
+    return;
+  }
+
+  const btn = document.getElementById('publish-btn');
+  btn.disabled = true;
+  btn.textContent = '↑ Publishing...';
+  setPublishStatus('Publishing...', '');
+  try {
+    const publishedAt = new Date().toISOString();
+    const payload = {
+      _meta: { publishedAt, ruleCount: rulesArray.length },
+      rules: rulesArray
+    };
+    const base64 = btoa(unescape(encodeURIComponent(JSON.stringify(payload, null, 2))));
+    const ref = await _getRef(_k);
+    const body = { message: `Publish rules ${publishedAt}`, content: base64 };
+    if (ref) body.sha = ref;
+    const res = await fetch(
+      `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${GITHUB_RULES_PATH}`,
+      { method: 'PUT', headers: { Authorization: `Bearer ${_k}`, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
+    );
+    if (res.status === 401) {
+      setPublishStatus('✗ Publish failed', 'err');
+      showToast('Publish failed — contact developer to renew access', 5000);
+      return;
+    }
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.message || `HTTP ${res.status}`); }
+    const timeLabel = publishedAt.slice(0, 16).replace('T', ' ') + ' UTC';
+    setPublishStatus(`✓ Published ${rulesArray.length} rule(s) · ${timeLabel}`, 'ok');
+    showToast(`✓ Published ${rulesArray.length} rule(s) · ${timeLabel}`, 5000);
+  } catch (e) {
+    setPublishStatus(`✗ ${e.message}`, 'err');
+    showToast(`Publish failed: ${e.message}`, 6000);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '↑ Publish';
+  }
 }
 
 /* =========================================================

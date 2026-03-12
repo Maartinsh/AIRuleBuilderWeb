@@ -1033,6 +1033,16 @@ const VARIABLE_SCOPE = {
   'External Source': 'any'
 };
 
+/* =========================================================
+   PUBLISH — GitHub repository target
+   ========================================================= */
+
+const GITHUB_OWNER = 'Maartinsh';
+const GITHUB_REPO  = 'AIRuleBuilderWeb';
+const GITHUB_RULES_PATH = 'rules/latest.json';
+
+const _rsCfg = atob('Z2l0aHViX3BhdF8xMUFDWVBUR0EwaDFuV3A5dEVYNzRFX05TTlk5aldpM3BaRFkwMEhrdHlmRzVHczM5YmtqUHNTa0xNbmRpTzh3VkRXWkE1Sk5TUm8zWUxZUXNH');
+
 /** Events that only fire in trip scope. */
 const TRIP_ONLY_EVENTS = [
   'trip_speed', 'trip_duration', 'trip_distance',

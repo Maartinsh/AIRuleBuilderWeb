@@ -554,6 +554,50 @@
     }
 
     .hidden { display: none !important; }
+
+    /* ======================================================
+       PUBLISH CONTROLS
+       ====================================================== */
+    .btn-publish {
+      background: #22c55e; color: #fff;
+      border-color: #22c55e;
+    }
+    .btn-publish:hover { background: #16a34a; border-color: #16a34a; }
+    .btn-publish:disabled { opacity: 0.6; cursor: not-allowed; }
+
+    .publish-group { position: relative; display: flex; align-items: center; gap: 0; }
+    .publish-status {
+      font-size: 0.6875rem; color: var(--color-text-muted);
+      white-space: nowrap; margin-left: 6px;
+    }
+    .publish-status.ok   { color: var(--color-success); }
+    .publish-status.err  { color: var(--color-error); }
+
+    /* Settings popover */
+    .ae-panel {
+      display: none;
+      position: absolute; top: calc(100% + 8px); right: 0; z-index: 300;
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius);
+      padding: 14px;
+      width: 320px;
+      box-shadow: var(--shadow-md);
+    }
+    .ae-panel.open { display: block; }
+    .ae-panel h4 { font-size: 0.8125rem; font-weight: 700; margin-bottom: 8px; }
+    .ae-panel .hint {
+      font-size: 0.6875rem; color: var(--color-text-muted);
+      margin-top: 4px; line-height: 1.5;
+    }
+    .ae-panel .popover-actions { display: flex; gap: 6px; margin-top: 10px; justify-content: flex-end; }
+    .ae-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: var(--color-error); display: inline-block; margin-left: 3px;
+      vertical-align: middle;
+    }
+    .ae-dot.set { background: var(--color-success); }
+
     .scope-hint {
       font-size: 0.6875rem;
       padding: 4px 8px;
@@ -569,12 +613,20 @@
        ====================================================== -->
   <header class="app-header">
     <h1><span>AI Engine</span> Rule Builder</h1>
+
+    <!-- Left side: publish actions -->
+    <div style="display:flex;align-items:center;gap:8px;flex:1;margin-left:24px">
+      <div class="publish-group">
+        <button class="btn btn-sm btn-publish" id="publish-btn" onclick="publishRules()">&#8593; Publish</button>
+      </div>
+      <a class="btn btn-sm" href="publish.html" target="_blank" style="background:var(--color-surface-alt)">View Published Rules ↗</a>
+      <span class="publish-status" id="publish-status"></span>
+    </div>
+
+    <!-- Right side: editor actions -->
     <div class="header-actions">
-      <select id="template-select" title="Load a template rule">
-        <option value="">Load Template...</option>
-      </select>
-      <button class="btn btn-sm btn-primary" onclick="addNewRule()" title="Add a new rule">+ New Rule</button>
-      <button class="btn btn-sm" onclick="resetForm()" title="Clear all rules">Clear All</button>
+      <button class="btn btn-sm btn-primary" onclick="addNewRule()">+ New Rule</button>
+      <button class="btn btn-sm" onclick="resetForm()">Clear All</button>
     </div>
   </header>
 
