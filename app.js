@@ -2357,6 +2357,7 @@ async function init() {
   showScopeHint();
   renderRuleList();
   updatePreview();
+  _refreshDot();
 }
 
 // Start
