@@ -666,7 +666,7 @@
             </div>
             <div class="form-row">
               <label for="rule-scope">Session Scope</label>
-              <select id="rule-scope" onchange="onFormChange(); showScopeHint()">
+              <select id="rule-scope" onchange="onFormChange(); showScopeHint(); refreshScopedTriggerIds()">
                 <option value="global">global</option>
                 <option value="daily">daily</option>
                 <option value="trip">trip</option>
