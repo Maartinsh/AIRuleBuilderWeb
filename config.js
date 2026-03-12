@@ -1041,7 +1041,8 @@ const GITHUB_OWNER = 'Maartinsh';
 const GITHUB_REPO  = 'AIRuleBuilderWeb';
 const GITHUB_RULES_PATH = 'rules/latest.json';
 
-const _rsCfg = atob('Z2l0aHViX3BhdF8xMUFDWVBUR0EwaDFuV3A5dEVYNzRFX05TTlk5aldpM3BaRFkwMEhrdHlmRzVHczM5YmtqUHNTa0xNbmRpTzh3VkRXWkE1Sk5TUm8zWUxZUXNH');
+// Token is stored in localStorage via the ⚙ settings panel — never commit it to source.
+const _rsCfg = null;
 
 /** Events that only fire in trip scope. */
 const TRIP_ONLY_EVENTS = [
