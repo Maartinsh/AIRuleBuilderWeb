@@ -1,18 +1,18 @@
 {
   "_meta": {
-    "publishedAt": "2026-03-12T10:29:21.545Z",
+    "publishedAt": "2026-03-12T11:44:08.317Z",
     "ruleCount": 1
   },
   "rules": [
     {
-      "id": "aaa",
+      "id": "bbb",
       "sessionScope": "global",
       "throttle": {
         "cooldownMinutes": 30,
         "maxTriggersPerDay": 3
       },
       "output": {
-        "instructions": "aaa",
+        "instructions": "bbb",
         "tone": "helpful and friendly",
         "variables": [
           {
