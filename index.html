@@ -623,10 +623,30 @@
       <span class="publish-status" id="publish-status"></span>
     </div>
 
-    <!-- Right side: editor actions -->
+    <!-- Right side: editor actions + token settings -->
     <div class="header-actions">
       <button class="btn btn-sm btn-primary" onclick="addNewRule()">+ New Rule</button>
       <button class="btn btn-sm" onclick="resetForm()">Clear All</button>
+      <div style="position:relative">
+        <button class="btn btn-sm" id="ae-btn" onclick="toggleCfgPanel()" title="GitHub token settings" style="padding:0 10px">
+          ⚙ <span class="ae-dot" id="ae-dot"></span>
+        </button>
+        <div class="ae-panel" id="ae-panel">
+          <h4>GitHub Publish Token</h4>
+          <p class="hint" style="margin-bottom:10px;line-height:1.6">
+            Required to publish rules to GitHub. Generate one at:<br>
+            <strong>GitHub → Settings → Developer settings → Personal access tokens → Fine-grained tokens</strong><br><br>
+            Set expiration up to 1 year. Under <em>Repository access</em> select <code>AIRuleBuilderWeb</code>,
+            then grant <strong>Contents: Read &amp; Write</strong>. Copy the token and paste it below.
+          </p>
+          <input id="rc-val" type="password" placeholder="github_pat_…"
+            style="width:100%;box-sizing:border-box;padding:6px 8px;border-radius:var(--radius-sm);border:1px solid var(--color-border);background:var(--color-bg);color:var(--color-text);font-size:0.8125rem">
+          <div class="popover-actions">
+            <button class="btn btn-sm" onclick="clearSettings()">Clear</button>
+            <button class="btn btn-sm btn-primary" onclick="saveSettings()">Save</button>
+          </div>
+        </div>
+      </div>
     </div>
   </header>
 
