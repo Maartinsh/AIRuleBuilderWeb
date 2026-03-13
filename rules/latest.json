@@ -1,64 +1,18 @@
 {
   "_meta": {
-    "publishedAt": "2026-03-12T15:03:09.456Z",
-    "ruleCount": 2
+    "publishedAt": "2026-03-13T07:58:12.302Z",
+    "ruleCount": 1
   },
   "rules": [
     {
       "id": "rule_1",
-      "description": "Rule 1 description",
-      "sessionScope": "trip",
-      "throttle": {
-        "cooldownMinutes": 30,
-        "maxTriggersPerDay": 3
-      },
-      "output": {
-        "instructions": "test instruction",
-        "tone": "motivational and encouraging"
-      },
-      "triggerExpression": {
-        "type": "GROUP",
-        "groupType": "AND",
-        "expressions": [
-          {
-            "type": "SINGLE",
-            "id": "trip_duration",
-            "dataSource": "SmartDrive",
-            "conditions": [
-              {
-                "type": "Value",
-                "parameter": "duration",
-                "operator": ">",
-                "value": 120
-              }
-            ]
-          },
-          {
-            "type": "SINGLE",
-            "id": "trip_distance",
-            "dataSource": "SmartDrive",
-            "conditions": [
-              {
-                "type": "Value",
-                "parameter": "distance",
-                "operator": ">",
-                "value": 500
-              }
-            ]
-          }
-        ]
-      }
-    },
-    {
-      "id": "rule_2",
-      "description": "Rule 2 description",
       "sessionScope": "global",
       "throttle": {
         "cooldownMinutes": 30,
         "maxTriggersPerDay": 3
       },
       "output": {
-        "instructions": "Trip started, woohooo"
+        "instructions": "instructions"
       },
       "triggerExpression": {
         "type": "SINGLE",
