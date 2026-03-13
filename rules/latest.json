@@ -1,23 +1,24 @@
 {
   "_meta": {
-    "publishedAt": "2026-03-13T07:58:12.302Z",
+    "publishedAt": "2026-03-13T09:39:17.554Z",
     "ruleCount": 1
   },
   "rules": [
     {
       "id": "rule_1",
-      "sessionScope": "global",
+      "description": "tes trip",
+      "sessionScope": "trip",
       "throttle": {
         "cooldownMinutes": 30,
         "maxTriggersPerDay": 3
       },
       "output": {
-        "instructions": "instructions"
+        "instructions": "Trip start woohooo"
       },
       "triggerExpression": {
         "type": "SINGLE",
-        "id": "trip_started",
-        "dataSource": "SmartDrive"
+        "id": "mhub_trip_started",
+        "dataSource": "MHub"
       }
     }
   ]
