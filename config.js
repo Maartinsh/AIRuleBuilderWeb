@@ -28,12 +28,30 @@ const TRIGGER_IDS = {
   BLE: [
     'beacon_emergency_button_pressed', 'beacon_connected', 'beacon_disconnected',
     'beacon_paired', 'beacon_unpaired', 'beacon_in_range', 'beacon_out_of_range',
-    'beacon_accident_detected', 'fuel_level'
+    'beacon_accident_detected'
   ],
   POI: ['poi_entry', 'poi_exit', 'job_destination_entry', 'job_destination_exit'],
   DateTime: ['hour_changed', 'day_changed'],
   Phone: ['hour_changed', 'day_changed', 'battery_level_changed', 'battery_low'],
   Wellness: ['wellness_measurement_taken'],
+  MHub: [
+    // Flag events — emitted on state-change only
+    'mhub_trip_started', 'mhub_trip_ended',
+    'mhub_ignition_on', 'mhub_ignition_off',
+    'mhub_accident_detected',
+    'mhub_gps_lock_acquired', 'mhub_gps_lock_lost',
+    'mhub_speeding_started', 'mhub_speeding_ended',
+    'mhub_harsh_braking', 'mhub_excess_acceleration', 'mhub_harsh_cornering',
+    'mhub_excess_rpm_started', 'mhub_excess_rpm_ended',
+    'mhub_excess_idle_started', 'mhub_excess_idle_ended',
+    'mhub_canbus_connected', 'mhub_canbus_disconnected',
+    // Variable stream events — 1s polling, trip-scoped
+    'mhub_speed', 'mhub_rpm', 'mhub_fuel_level',
+    'mhub_coolant_temp', 'mhub_ambient_temp', 'mhub_voltage',
+    'mhub_trip_distance', 'mhub_trip_duration', 'mhub_trip_max_speed',
+    'mhub_max_rpm', 'mhub_stationary_time', 'mhub_location',
+    'mhub_brake_force', 'mhub_acceleration_force'
+  ],
   MZONE: [
     'get_all_jobs', 'get_todays_jobs', 'get_remaining_jobs', 'job_route_in_progress',
     'dynamic_changes_to_the_route', 'morning_jobs', 'job_details', 'job_details_updated',
@@ -59,7 +77,12 @@ const TRIGGER_IDS = {
 
 const PARAMETERS = {
   SmartDrive: ['speed', 'duration', 'distance', 'duration_millis'],
-  BLE: ['level', 'consumption', 'isConnected', 'isAccident', 'isEmergency'],
+  BLE: ['isConnected', 'isAccident', 'isEmergency'],
+  MHub: [
+    'speed', 'rpm', 'fuel_level', 'coolant_temp', 'ambient_temp', 'voltage',
+    'distance', 'duration', 'max_speed', 'max_rpm', 'stationary_time',
+    'latitude', 'longitude', 'brake_force', 'acceleration_force'
+  ],
   POI: ['poi_type', 'poi_id', 'poi_name'],
   DateTime: ['hour', 'day_of_week'],
   Phone: ['hour', 'day_of_week', 'battery_level', 'is_charging'],
@@ -124,7 +147,7 @@ const FILTER_FIELDS = {
 
 const DATA_SOURCES = [
   'SmartDrive', 'BLE', 'POI', 'DateTime', 'Phone',
-  'Wellness', 'MZONE', 'GZONE', 'External Source'
+  'Wellness', 'MHub', 'MZONE', 'GZONE', 'External Source'
 ];
 
 const OPERATORS = ['==', '!=', '<', '<=', '>', '>=', 'in'];
@@ -242,17 +265,169 @@ const TRIGGER_CONDITION_CONFIG = {
     hideSource: true
   },
 
-  // ── BLE ──
-  fuel_level: {
+  // ── MHub — variable stream events (require Value condition) ──
+  mhub_speed: {
     conditionRequired: true,
     defaultConditionType: 'Value',
-    defaultParameter: 'level',
+    defaultParameter: 'speed',
     parameterLocked: true,
     validConditionTypes: ['Value'],
     validOperators: NUMERIC_OPERATORS,
-    valueHint: 'Fuel level (e.g. 20)',
-    hideSource: false
+    valueHint: 'Speed in km/h (e.g. 90)',
+    hideSource: true
   },
+  mhub_rpm: {
+    conditionRequired: true,
+    defaultConditionType: 'Value',
+    defaultParameter: 'rpm',
+    parameterLocked: true,
+    validConditionTypes: ['Value'],
+    validOperators: NUMERIC_OPERATORS,
+    valueHint: 'RPM value (e.g. 3000)',
+    hideSource: true
+  },
+  mhub_fuel_level: {
+    conditionRequired: true,
+    defaultConditionType: 'Value',
+    defaultParameter: 'fuel_level',
+    parameterLocked: true,
+    validConditionTypes: ['Value'],
+    validOperators: NUMERIC_OPERATORS,
+    valueHint: 'Fuel level % (e.g. 10)',
+    hideSource: true
+  },
+  mhub_coolant_temp: {
+    conditionRequired: true,
+    defaultConditionType: 'Value',
+    defaultParameter: 'coolant_temp',
+    parameterLocked: true,
+    validConditionTypes: ['Value'],
+    validOperators: NUMERIC_OPERATORS,
+    valueHint: 'Temperature in °C (e.g. 100)',
+    hideSource: true
+  },
+  mhub_ambient_temp: {
+    conditionRequired: true,
+    defaultConditionType: 'Value',
+    defaultParameter: 'ambient_temp',
+    parameterLocked: true,
+    validConditionTypes: ['Value'],
+    validOperators: NUMERIC_OPERATORS,
+    valueHint: 'Temperature in °C (e.g. -5)',
+    hideSource: true
+  },
+  mhub_voltage: {
+    conditionRequired: true,
+    defaultConditionType: 'Value',
+    defaultParameter: 'voltage',
+    parameterLocked: true,
+    validConditionTypes: ['Value'],
+    validOperators: NUMERIC_OPERATORS,
+    valueHint: 'Voltage in V (e.g. 11.5)',
+    hideSource: true
+  },
+  mhub_trip_distance: {
+    conditionRequired: true,
+    defaultConditionType: 'Value',
+    defaultParameter: 'distance',
+    parameterLocked: true,
+    validConditionTypes: ['Value'],
+    validOperators: NUMERIC_OPERATORS,
+    valueHint: 'Distance in meters (e.g. 50000)',
+    hideSource: true
+  },
+  mhub_trip_duration: {
+    conditionRequired: true,
+    defaultConditionType: 'Value',
+    defaultParameter: 'duration',
+    parameterLocked: true,
+    validConditionTypes: ['Value'],
+    validOperators: NUMERIC_OPERATORS,
+    valueHint: 'Duration in minutes (e.g. 120)',
+    hideSource: true
+  },
+  mhub_trip_max_speed: {
+    conditionRequired: true,
+    defaultConditionType: 'Value',
+    defaultParameter: 'max_speed',
+    parameterLocked: true,
+    validConditionTypes: ['Value'],
+    validOperators: NUMERIC_OPERATORS,
+    valueHint: 'Max speed in km/h (e.g. 130)',
+    hideSource: true
+  },
+  mhub_max_rpm: {
+    conditionRequired: true,
+    defaultConditionType: 'Value',
+    defaultParameter: 'max_rpm',
+    parameterLocked: true,
+    validConditionTypes: ['Value'],
+    validOperators: NUMERIC_OPERATORS,
+    valueHint: 'Max RPM (e.g. 4000)',
+    hideSource: true
+  },
+  mhub_stationary_time: {
+    conditionRequired: true,
+    defaultConditionType: 'Value',
+    defaultParameter: 'stationary_time',
+    parameterLocked: true,
+    validConditionTypes: ['Value'],
+    validOperators: NUMERIC_OPERATORS,
+    valueHint: 'Stationary time in seconds (e.g. 300)',
+    hideSource: true
+  },
+  mhub_brake_force: {
+    conditionRequired: true,
+    defaultConditionType: 'Value',
+    defaultParameter: 'brake_force',
+    parameterLocked: true,
+    validConditionTypes: ['Value'],
+    validOperators: NUMERIC_OPERATORS,
+    valueHint: 'Brake force in g (e.g. 0.4)',
+    hideSource: true
+  },
+  mhub_acceleration_force: {
+    conditionRequired: true,
+    defaultConditionType: 'Value',
+    defaultParameter: 'acceleration_force',
+    parameterLocked: true,
+    validConditionTypes: ['Value'],
+    validOperators: NUMERIC_OPERATORS,
+    valueHint: 'Acceleration force in g (e.g. 0.3)',
+    hideSource: true
+  },
+  // MHub location — no numeric condition needed
+  mhub_location: {
+    conditionRequired: false,
+    defaultConditionType: 'Value',
+    defaultParameter: 'latitude',
+    parameterLocked: false,
+    validConditionTypes: ['Value'],
+    validOperators: NUMERIC_OPERATORS,
+    valueHint: 'lat/lng coordinate',
+    hideSource: true
+  },
+
+  // ── MHub — flag events (state-change only, carry no parameters) ──
+  // mhubFlagEvent:true tells the builder to show a read-only flag badge instead of condition UI.
+  mhub_trip_started:        { conditionRequired: false, mhubFlagEvent: true, flagDescription: 'Trip In Progress <strong>→ ON</strong>',        hideSource: true },
+  mhub_trip_ended:          { conditionRequired: false, mhubFlagEvent: true, flagDescription: 'Trip In Progress <strong>→ OFF</strong>',       hideSource: true },
+  mhub_ignition_on:         { conditionRequired: false, mhubFlagEvent: true, flagDescription: 'Ignition <strong>→ ON</strong>',                hideSource: true },
+  mhub_ignition_off:        { conditionRequired: false, mhubFlagEvent: true, flagDescription: 'Ignition <strong>→ OFF</strong>',               hideSource: true },
+  mhub_accident_detected:   { conditionRequired: false, mhubFlagEvent: true, flagDescription: 'Accident <strong>DETECTED</strong>',            hideSource: true },
+  mhub_gps_lock_acquired:   { conditionRequired: false, mhubFlagEvent: true, flagDescription: 'GPS Lock <strong>→ ACQUIRED</strong>',          hideSource: true },
+  mhub_gps_lock_lost:       { conditionRequired: false, mhubFlagEvent: true, flagDescription: 'GPS Lock <strong>→ LOST</strong>',              hideSource: true },
+  mhub_speeding_started:    { conditionRequired: false, mhubFlagEvent: true, flagDescription: 'Speeding flag <strong>→ true</strong>',         hideSource: true },
+  mhub_speeding_ended:      { conditionRequired: false, mhubFlagEvent: true, flagDescription: 'Speeding flag <strong>→ false</strong>',        hideSource: true },
+  mhub_harsh_braking:       { conditionRequired: false, mhubFlagEvent: true, flagDescription: 'Harsh Braking <strong>DETECTED</strong>',       hideSource: true },
+  mhub_excess_acceleration: { conditionRequired: false, mhubFlagEvent: true, flagDescription: 'Excess Acceleration <strong>DETECTED</strong>', hideSource: true },
+  mhub_harsh_cornering:     { conditionRequired: false, mhubFlagEvent: true, flagDescription: 'Harsh Cornering <strong>DETECTED</strong>',     hideSource: true },
+  mhub_excess_rpm_started:  { conditionRequired: false, mhubFlagEvent: true, flagDescription: 'Excess RPM <strong>→ true</strong>',            hideSource: true },
+  mhub_excess_rpm_ended:    { conditionRequired: false, mhubFlagEvent: true, flagDescription: 'Excess RPM <strong>→ false</strong>',           hideSource: true },
+  mhub_excess_idle_started: { conditionRequired: false, mhubFlagEvent: true, flagDescription: 'Excess Idle <strong>→ true</strong>',           hideSource: true },
+  mhub_excess_idle_ended:   { conditionRequired: false, mhubFlagEvent: true, flagDescription: 'Excess Idle <strong>→ false</strong>',          hideSource: true },
+  mhub_canbus_connected:    { conditionRequired: false, mhubFlagEvent: true, flagDescription: 'CAN Bus <strong>→ CONNECTED</strong>',          hideSource: true },
+  mhub_canbus_disconnected: { conditionRequired: false, mhubFlagEvent: true, flagDescription: 'CAN Bus <strong>→ DISCONNECTED</strong>',       hideSource: true },
 
   // ── POI ──
   poi_entry: {
@@ -524,7 +699,7 @@ const TRIGGER_CONDITION_CONFIG = {
 const API_DATA_SOURCES = ['MZONE', 'GZONE', 'External Source'];
 
 /** Event/device data sources — simple extraction (dataSource + parameter). */
-const EVENT_DATA_SOURCES = ['SmartDrive', 'BLE', 'POI', 'DateTime', 'Phone', 'Wellness'];
+const EVENT_DATA_SOURCES = ['SmartDrive', 'BLE', 'POI', 'DateTime', 'Phone', 'Wellness', 'MHub'];
 
 /**
  * API_ENDPOINTS — per data source, lists the actual API endpoints the engine supports.
@@ -939,9 +1114,23 @@ const EVENT_VARIABLE_PARAMS = {
   ],
   BLE: [
     { id: 'isConnected', label: 'device connected (true/false)' },
-    { id: 'level', label: 'fuel level (%)' },
-    { id: 'consumption', label: 'fuel consumption rate' },
-    { id: 'fuel_range', label: 'distance remaining on fuel' },
+  ],
+  MHub: [
+    { id: 'speed', label: 'vehicle speed (km/h)' },
+    { id: 'rpm', label: 'engine RPM' },
+    { id: 'fuel_level', label: 'fuel level (%)' },
+    { id: 'coolant_temp', label: 'engine coolant temperature (°C)' },
+    { id: 'ambient_temp', label: 'ambient temperature (°C)' },
+    { id: 'voltage', label: 'main input voltage (V)' },
+    { id: 'distance', label: 'trip distance (meters)' },
+    { id: 'duration', label: 'trip duration (seconds)' },
+    { id: 'max_speed', label: 'trip max speed (km/h)' },
+    { id: 'max_rpm', label: 'trip max RPM' },
+    { id: 'stationary_time', label: 'stationary time (seconds)' },
+    { id: 'latitude', label: 'current latitude' },
+    { id: 'longitude', label: 'current longitude' },
+    { id: 'brake_force', label: 'brake force (g)' },
+    { id: 'acceleration_force', label: 'acceleration force (g)' },
   ],
   POI: [
     { id: 'poi_id', label: 'POI identifier' },
@@ -1007,7 +1196,17 @@ const EVENT_ONLY_TRIGGERS = new Set([
   'current_location', 'location_request',
   'job_details', 'job_details_updated', 'updatedJobDetails',
   'dynamic_changes_to_the_route', 'job_route_in_progress',
-  'battery_low'
+  'battery_low',
+  // MHub flag events — fire on state-change, no condition needed
+  'mhub_trip_started', 'mhub_trip_ended',
+  'mhub_ignition_on', 'mhub_ignition_off',
+  'mhub_accident_detected',
+  'mhub_gps_lock_acquired', 'mhub_gps_lock_lost',
+  'mhub_speeding_started', 'mhub_speeding_ended',
+  'mhub_harsh_braking', 'mhub_excess_acceleration', 'mhub_harsh_cornering',
+  'mhub_excess_rpm_started', 'mhub_excess_rpm_ended',
+  'mhub_excess_idle_started', 'mhub_excess_idle_ended',
+  'mhub_canbus_connected', 'mhub_canbus_disconnected'
 ]);
 
 const SCOPE_HINTS = {
@@ -1028,6 +1227,7 @@ const VARIABLE_SCOPE = {
   DateTime: 'any',
   Phone: 'any',
   Wellness: 'any',
+  MHub: 'trip',
   MZONE: 'any',
   GZONE: 'any',
   'External Source': 'any'
@@ -1048,7 +1248,13 @@ const _rsCfg = null;
 const TRIP_ONLY_EVENTS = [
   'trip_speed', 'trip_duration', 'trip_distance',
   'distracted_phone_use', 'distracted_phone_call_with_headset',
-  'distracted_phone_call_without_headset'
+  'distracted_phone_call_without_headset',
+  // MHub variable stream events — polled every 1s during trip only
+  'mhub_speed', 'mhub_rpm', 'mhub_fuel_level',
+  'mhub_coolant_temp', 'mhub_ambient_temp', 'mhub_voltage',
+  'mhub_trip_distance', 'mhub_trip_duration', 'mhub_trip_max_speed',
+  'mhub_max_rpm', 'mhub_stationary_time', 'mhub_location',
+  'mhub_brake_force', 'mhub_acceleration_force'
 ];
 
 /* =========================================================
@@ -1064,7 +1270,12 @@ const TEMPLATES = [
   { id: "high_stress_wellness", description: "Alert when driver stress is elevated from wellness measurement.", sessionScope: "daily", priority: 8, throttle: { cooldownMinutes: 60, maxTriggersPerDay: 3 }, output: { tone: "calm and caring", instructions: "The driver's stress level is elevated. Suggest a calming activity or break." }, triggerExpression: { type: "SINGLE", id: "wellness_measurement_taken", dataSource: "Wellness", conditions: [{ type: "Value", parameter: "normalizedStressIndex", operator: ">", value: 5 }] } },
   { id: "depot_departure_summary", description: "Summarize route when entering depot before 10 AM with pending jobs and route not yet completed.", sessionScope: "daily", priority: 7, throttle: { cooldownMinutes: 60, maxTriggersPerDay: 1 }, output: { tone: "professional and friendly", instructions: "Summarize the driver's route for today. They have arrived at the depot and their route is not yet completed.", variables: [{ id: "get_todays_jobs", dataSource: "MZONE" }] }, triggerExpression: { type: "GROUP", groupType: "AND", expressions: [{ type: "SINGLE", id: "poi_entry", dataSource: "POI", conditions: [{ type: "Value", parameter: "poi_type", operator: "==", value: "depot" }] }, { type: "SINGLE", id: "hour_changed", dataSource: "DateTime", conditions: [{ type: "Time", operator: "<=", value: "10:00" }] }, { type: "SINGLE", id: "get_todays_jobs", dataSource: "MZONE", conditions: [{ type: "Value", parameter: "RouteState", operator: "!=", value: "Completed" }] }] } },
   { id: "emergency_beacon", description: "Call dispatch and send API event when accident detected by beacon.", sessionScope: "global", priority: 10, throttle: { cooldownMinutes: 5, maxTriggersPerDay: 5 }, output: { tone: "calm and urgent", instructions: "Emergency detected. Ask if the driver is okay and inform them that dispatch is being contacted." }, actions: [{ type: "PhoneCall", number: { source: "static", value: "+31612345678" } }, { type: "APICall", id: "emergency_flow", dataSource: "MZONE" }], triggerExpression: { type: "SINGLE", id: "beacon_accident_detected", dataSource: "BLE" } },
-  { id: "fuel_low_mhub", description: "Alert when fuel below 10% and consumption is high via BLE MHUB.", sessionScope: "trip", priority: 8, throttle: { cooldownMinutes: 30, maxTriggersPerDay: 3 }, output: { tone: "calm and informative", instructions: "The fuel level is critically low and consumption is high. Suggest refueling soon." }, triggerExpression: { type: "SINGLE", id: "fuel_level", dataSource: "BLE", conditions: [{ type: "Value", parameter: "level", operator: "<=", value: 10, source: "MHUB" }, { type: "Value", parameter: "consumption", operator: ">", value: 15 }] } },
+  { id: "mhub_fuel_low_alert", description: "Alert when MHub fuel level drops below 10%.", sessionScope: "trip", priority: 8, throttle: { cooldownMinutes: 30, maxTriggersPerDay: 3 }, output: { tone: "calm and informative", instructions: "The vehicle fuel level is critically low. Suggest the driver refuels soon." }, triggerExpression: { type: "SINGLE", id: "mhub_fuel_level", dataSource: "MHub", conditions: [{ type: "Value", parameter: "fuel_level", operator: "<=", value: 10 }] } },
+  { id: "mhub_accident_response", description: "Emergency response when MHub detects an accident.", sessionScope: "global", priority: 10, throttle: { cooldownMinutes: 5, maxTriggersPerDay: 5 }, output: { tone: "calm and urgent", instructions: "An accident has been detected by the vehicle telematics. Ask the driver if they are okay and inform them that emergency services may be contacted." }, actions: [{ type: "PhoneCall", number: { source: "static", value: "+31612345678" } }], triggerExpression: { type: "SINGLE", id: "mhub_accident_detected", dataSource: "MHub" } },
+  { id: "mhub_overspeed_alert", description: "Alert when MHub reports vehicle speeding.", sessionScope: "trip", priority: 9, throttle: { cooldownMinutes: 15, maxTriggersPerDay: 5 }, output: { tone: "calm and firm", instructions: "The vehicle is speeding according to telematics data. Ask the driver to slow down and drive safely." }, triggerExpression: { type: "SINGLE", id: "mhub_speeding_started", dataSource: "MHub" } },
+  { id: "mhub_engine_overheat", description: "Alert when engine coolant temperature exceeds 105°C.", sessionScope: "trip", priority: 9, throttle: { cooldownMinutes: 10, maxTriggersPerDay: 5 }, output: { tone: "urgent and concerned", instructions: "The engine coolant temperature is dangerously high. Advise the driver to pull over safely and turn off the engine." }, triggerExpression: { type: "SINGLE", id: "mhub_coolant_temp", dataSource: "MHub", conditions: [{ type: "Value", parameter: "coolant_temp", operator: ">=", value: 105 }] } },
+  { id: "mhub_harsh_braking_alert", description: "Warn after 3+ harsh braking events detected by MHub.", sessionScope: "trip", priority: 8, throttle: { cooldownMinutes: 60, maxTriggersPerDay: 2 }, output: { tone: "calm and concerned", instructions: "The telematics device has detected multiple harsh braking events. Remind the driver to maintain safe following distances." }, triggerExpression: { type: "SINGLE", id: "mhub_harsh_braking", dataSource: "MHub", conditions: [{ type: "EventCount", eventName: "mhub_harsh_braking", operator: ">=", value: 3 }] } },
+  { id: "mhub_low_voltage_alert", description: "Alert when vehicle battery voltage drops below 11.5V.", sessionScope: "trip", priority: 7, throttle: { cooldownMinutes: 30, maxTriggersPerDay: 3 }, output: { tone: "calm and informative", instructions: "The vehicle battery voltage is low. This may indicate a charging issue. Suggest the driver reports this to the workshop." }, triggerExpression: { type: "SINGLE", id: "mhub_voltage", dataSource: "MHub", conditions: [{ type: "Value", parameter: "voltage", operator: "<", value: 11.5 }] } },
   { id: "score_leaderboard_decline", description: "Motivate when monthly score and leaderboard position both dropped.", sessionScope: "global", priority: 7, throttle: { cooldownMinutes: 60, maxTriggersPerDay: 1 }, output: { tone: "motivational and encouraging", instructions: "The driver's score and leaderboard position have declined this month. Encourage them to improve their driving." }, triggerExpression: { type: "GROUP", groupType: "AND", expressions: [{ type: "SINGLE", id: "montly_score_decreased", dataSource: "MZONE", conditions: [{ type: "Comparison", parameter: "score", firstPeriod: "currentMonth", secondPeriod: "lastMonth", operator: "<", value: "0" }] }, { type: "SINGLE", id: "leaderboard_position_declined", dataSource: "GZONE", conditions: [{ type: "Comparison", parameter: "position", firstPeriod: "currentMonth", secondPeriod: "lastMonth", operator: ">", value: "0" }] }] } },
   { id: "bad_weather_warning", description: "Inform about bad driving conditions from weather forecast during trip.", sessionScope: "trip", priority: 8, throttle: { cooldownMinutes: 60, maxTriggersPerDay: 3 }, output: { tone: "calm and informative", instructions: "Inform the driver about current weather conditions and suggest safe driving tips." }, triggerExpression: { type: "SINGLE", id: "weather_forecast", dataSource: "External Source", conditions: [{ type: "Value", parameter: "driving_conditions", operator: "==", value: "bad_driving_conditions" }] } },
   { id: "job_arrival_poi", description: "Provide job details when entering a job destination POI.", sessionScope: "trip", priority: 8, throttle: { cooldownMinutes: 15, maxTriggersPerDay: 20 }, output: { tone: "professional and friendly", instructions: "Tell the driver they have arrived at their job destination and provide the job details.", variables: [{ id: "job_details", dataSource: "MZONE" }] }, triggerExpression: { type: "SINGLE", id: "job_destination_entry", dataSource: "POI" } },
