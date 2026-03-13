@@ -456,48 +456,71 @@ function renderSingleTrigger(container, depth, data = null) {
     const cfg = TRIGGER_CONDITION_CONFIG[tid] || null;
     const isEventOnly = EVENT_ONLY_TRIGGERS.has(tid) && !cfg?.conditionRequired;
 
-    // Auto-configure conditions when trigger ID changes to a configured one
-    if (tid !== _prevTriggerId && cfg) {
+    // Clear and re-initialize when trigger ID changes.
+    // Flag events carry no parameters — clear any stale conditions but do not add a new one.
+    if (tid !== _prevTriggerId) {
       condList.innerHTML = '';
-      addCondition(condList, dsSelect.value, null, cfg);
+      if (cfg && !cfg.mhubFlagEvent) {
+        addCondition(condList, dsSelect.value, null, cfg);
+      }
     }
     _prevTriggerId = tid;
 
-    const hasConditions = condList.children.length > 0;
-
-    if (cfg?.conditionRequired) {
+    if (cfg?.mhubFlagEvent) {
+      // MHub flag event: show a read-only flag state badge, no condition editor.
+      condList.innerHTML = '';
+      condWrapper.classList.add('hidden');
+      condToggleLink.classList.add('hidden');
+      condRequiredHint.classList.add('hidden');
+      eventOnlyHint.innerHTML =
+        `<span style="display:inline-flex;align-items:center;gap:6px;background:color-mix(in srgb,var(--color-accent) 12%,transparent);border:1px solid color-mix(in srgb,var(--color-accent) 35%,transparent);border-radius:6px;padding:5px 10px;font-size:0.8125rem">` +
+        `<span style="font-size:0.9rem">&#9873;</span>` +
+        `<span><strong>MHub flag event</strong> &mdash; fires when ${cfg.flagDescription}</span>` +
+        `</span>`;
+      eventOnlyHint.classList.remove('hidden');
+    } else if (cfg?.conditionRequired) {
+      // Fallback: ensure at least one condition exists (handles switching from flag events or
+      // any path where the auto-add above was skipped).
+      if (condList.children.length === 0) {
+        addCondition(condList, dsSelect.value, null, cfg);
+      }
+      const hasConditions = condList.children.length > 0;
+      eventOnlyHint.textContent = '';
       condWrapper.classList.remove('hidden');
       eventOnlyHint.classList.add('hidden');
       condToggleLink.classList.add('hidden');
       condRequiredHint.classList.toggle('hidden', hasConditions);
-    } else if (isEventOnly && !hasConditions) {
-      condWrapper.classList.add('hidden');
-      eventOnlyHint.classList.remove('hidden');
-      condToggleLink.classList.remove('hidden');
-      condRequiredHint.classList.add('hidden');
     } else {
-      condWrapper.classList.remove('hidden');
-      eventOnlyHint.classList.add('hidden');
-      condToggleLink.classList.add('hidden');
-      condRequiredHint.classList.add('hidden');
+      const hasConditions = condList.children.length > 0;
+      if (isEventOnly && !hasConditions) {
+        eventOnlyHint.textContent = 'Triggers on event occurrence \u2014 no conditions needed. ';
+        condWrapper.classList.add('hidden');
+        eventOnlyHint.classList.remove('hidden');
+        condToggleLink.classList.remove('hidden');
+        condRequiredHint.classList.add('hidden');
+      } else {
+        condWrapper.classList.remove('hidden');
+        eventOnlyHint.classList.add('hidden');
+        condToggleLink.classList.add('hidden');
+        condRequiredHint.classList.add('hidden');
+      }
     }
   }
 
-  // Hook trigger ID input changes
-  function hookTriggerIdListener() {
-    const tidEl = idContainer.querySelector('[data-field="triggerId"]');
-    if (tidEl) {
-      const handler = () => { updateConditionsVisibility(); onFormChange(); };
-      tidEl.addEventListener('input', handler);
-      tidEl.addEventListener('change', handler);
-    }
-  }
-  hookTriggerIdListener();
+  // Use event delegation on container so the listener survives trigger ID input rebuilds
+  // (buildIdInput replaces the select element on every data source or scope change).
+  container.addEventListener('change', (e) => {
+    if (e.target.dataset?.field === 'triggerId') updateConditionsVisibility();
+  });
+  container.addEventListener('input', (e) => {
+    if (e.target.dataset?.field === 'triggerId') updateConditionsVisibility();
+  });
 
-  // Re-hook after data source change rebuilds the trigger ID input
+  // Reset prev-trigger tracking when the data source changes so the next trigger ID
+  // selection always triggers a full re-init of the conditions panel.
   dsSelect.addEventListener('change', () => {
     _prevTriggerId = '';
-    setTimeout(() => { hookTriggerIdListener(); updateConditionsVisibility(); }, 0);
+    setTimeout(updateConditionsVisibility, 0);
   });
   updateConditionsVisibility();
 
