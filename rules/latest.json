@@ -1,24 +1,33 @@
 {
   "_meta": {
-    "publishedAt": "2026-03-13T09:39:17.554Z",
+    "publishedAt": "2026-03-19T07:17:34.617Z",
     "ruleCount": 1
   },
   "rules": [
     {
-      "id": "rule_1",
-      "description": "tes trip",
+      "id": "QARule to get notification about high level of overspeeding",
       "sessionScope": "trip",
+      "priority": 10,
       "throttle": {
         "cooldownMinutes": 30,
         "maxTriggersPerDay": 3
       },
       "output": {
-        "instructions": "Trip start woohooo"
+        "instructions": "Generate the message for the driver that high speed driving is dangerous and takes too much resources to control the car, and provide recommendation to low speed immediately.",
+        "tone": "calm and urgent"
       },
       "triggerExpression": {
         "type": "SINGLE",
-        "id": "mhub_trip_started",
-        "dataSource": "MHub"
+        "id": "trip_speed",
+        "dataSource": "SmartDrive",
+        "conditions": [
+          {
+            "type": "Value",
+            "parameter": "speed",
+            "operator": ">",
+            "value": 50
+          }
+        ]
       }
     }
   ]
