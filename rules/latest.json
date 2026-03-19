@@ -1,33 +1,24 @@
 {
   "_meta": {
-    "publishedAt": "2026-03-19T07:17:34.617Z",
+    "publishedAt": "2026-03-19T07:42:52.250Z",
     "ruleCount": 1
   },
   "rules": [
     {
-      "id": "QARule to get notification about high level of overspeeding",
+      "id": "QArule for the FleetDrive",
       "sessionScope": "trip",
-      "priority": 10,
+      "priority": 7,
       "throttle": {
-        "cooldownMinutes": 30,
+        "cooldownMinutes": 1,
         "maxTriggersPerDay": 3
       },
       "output": {
-        "instructions": "Generate the message for the driver that high speed driving is dangerous and takes too much resources to control the car, and provide recommendation to low speed immediately.",
-        "tone": "calm and urgent"
+        "instructions": "Generate greeting for the first exercise in a day"
       },
       "triggerExpression": {
         "type": "SINGLE",
-        "id": "trip_speed",
-        "dataSource": "SmartDrive",
-        "conditions": [
-          {
-            "type": "Value",
-            "parameter": "speed",
-            "operator": ">",
-            "value": 50
-          }
-        ]
+        "id": "trip_started",
+        "dataSource": "SmartDrive"
       }
     }
   ]
