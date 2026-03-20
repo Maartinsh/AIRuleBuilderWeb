@@ -1,0 +1,28 @@
+{
+  "_meta": {
+    "versionId": "2026-03-20-1233-new-version",
+    "name": "new-version",
+    "publishedAt": "2026-03-20T12:33:20.402Z",
+    "ruleCount": 1,
+    "description": "testing new version"
+  },
+  "rules": [
+    {
+      "id": "rule_2_copy_of_rule_1",
+      "description": "Im adding random description",
+      "sessionScope": "daily",
+      "throttle": {
+        "cooldownMinutes": 30,
+        "maxTriggersPerDay": 3
+      },
+      "output": {
+        "instructions": "test"
+      },
+      "triggerExpression": {
+        "type": "SINGLE",
+        "id": "trip_ended",
+        "dataSource": "SmartDrive"
+      }
+    }
+  ]
+}
