@@ -5,11 +5,11 @@
     "publishedAt": "2026-03-19T16:00:54.966Z",
     "ruleCount": 1,
     "description": "",
-    "updatedAt": "2026-03-20T12:19:35.293Z"
+    "updatedAt": "2026-03-20T12:27:43.625Z"
   },
   "rules": [
     {
-      "id": "rule_1",
+      "id": "rule_1_edited",
       "sessionScope": "daily",
       "throttle": {
         "cooldownMinutes": 30,
