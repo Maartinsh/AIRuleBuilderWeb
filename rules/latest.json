@@ -1,11 +1,46 @@
 {
   "_meta": {
-    "publishedAt": "2026-03-19T07:42:52.250Z",
-    "ruleCount": 1
+    "publishedAt": "2026-03-20T10:09:21.816Z",
+    "ruleCount": 4
   },
   "rules": [
     {
-      "id": "QArule for the FleetDrive",
+      "id": "QARule_ToCheckRealEvents_Mhub369B_OnDrive",
+      "sessionScope": "trip",
+      "priority": 7,
+      "throttle": {
+        "cooldownMinutes": 5,
+        "maxTriggersPerDay": 3
+      },
+      "output": {
+        "instructions": "Show welcome message for the driver about trip start.",
+        "tone": "calm & friendly"
+      },
+      "triggerExpression": {
+        "type": "SINGLE",
+        "id": "trip_started",
+        "dataSource": "SmartDrive"
+      }
+    },
+    {
+      "id": "QARule_ToCheckRealEvents_Mhub369B_OnTripEnd",
+      "sessionScope": "trip",
+      "priority": 7,
+      "throttle": {
+        "cooldownMinutes": 5,
+        "maxTriggersPerDay": 3
+      },
+      "output": {
+        "instructions": "Show message for the driver on trip end. Wish him a good day."
+      },
+      "triggerExpression": {
+        "type": "SINGLE",
+        "id": "trip_ended",
+        "dataSource": "SmartDrive"
+      }
+    },
+    {
+      "id": "QARule_ToCheckRealEvents_Mhub369B_OnOverSpeeding",
       "sessionScope": "trip",
       "priority": 7,
       "throttle": {
@@ -13,12 +48,45 @@
         "maxTriggersPerDay": 3
       },
       "output": {
-        "instructions": "Generate greeting for the first exercise in a day"
+        "instructions": "Show message to the driver about allowed trip speeding - not more than 30 km/h."
       },
       "triggerExpression": {
         "type": "SINGLE",
-        "id": "trip_started",
-        "dataSource": "SmartDrive"
+        "id": "trip_speed",
+        "dataSource": "SmartDrive",
+        "conditions": [
+          {
+            "type": "Value",
+            "parameter": "speed",
+            "operator": ">",
+            "value": 10
+          }
+        ]
+      }
+    },
+    {
+      "id": "QARule_ToCheckRealEvents_Mhub369B_OnBreak",
+      "sessionScope": "trip",
+      "priority": 7,
+      "throttle": {
+        "cooldownMinutes": 1,
+        "maxTriggersPerDay": 3
+      },
+      "output": {
+        "instructions": "Show message to the driver with advise to keep more ecological style to drive."
+      },
+      "triggerExpression": {
+        "type": "SINGLE",
+        "id": "driving_behaviour_event_braking",
+        "dataSource": "SmartDrive",
+        "conditions": [
+          {
+            "type": "EventCount",
+            "eventName": "driving_behaviour_event_braking",
+            "operator": "==",
+            "value": 1
+          }
+        ]
       }
     }
   ]
