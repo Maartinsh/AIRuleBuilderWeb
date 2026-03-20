@@ -4,12 +4,13 @@
     "name": "martins-doing-test",
     "publishedAt": "2026-03-19T16:00:54.966Z",
     "ruleCount": 1,
-    "description": ""
+    "description": "",
+    "updatedAt": "2026-03-20T12:19:35.293Z"
   },
   "rules": [
     {
       "id": "rule_1",
-      "sessionScope": "global",
+      "sessionScope": "daily",
       "throttle": {
         "cooldownMinutes": 30,
         "maxTriggersPerDay": 3
