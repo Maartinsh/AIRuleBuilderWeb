@@ -1,0 +1,38 @@
+{
+  "_meta": {
+    "versionId": "2026-03-20-1244-qa-team",
+    "name": "qa-team",
+    "publishedAt": "2026-03-20T12:44:12.456Z",
+    "ruleCount": 1,
+    "description": ""
+  },
+  "rules": [
+    {
+      "id": "rule_3",
+      "description": "this is a newest rule",
+      "sessionScope": "global",
+      "priority": 3,
+      "throttle": {
+        "cooldownMinutes": 30,
+        "maxTriggersPerDay": 3
+      },
+      "output": {
+        "instructions": "well testing again",
+        "tone": "helpful and friendly"
+      },
+      "triggerExpression": {
+        "type": "SINGLE",
+        "id": "driving_behaviour_event_braking",
+        "dataSource": "SmartDrive",
+        "conditions": [
+          {
+            "type": "EventCount",
+            "eventName": "driving_behaviour_event_braking",
+            "operator": ">=",
+            "value": 3
+          }
+        ]
+      }
+    }
+  ]
+}
