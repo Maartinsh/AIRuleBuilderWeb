@@ -8,13 +8,6 @@
       "description": ""
     },
     {
-      "id": "2026-03-20-1233-new-version",
-      "name": "new-version",
-      "publishedAt": "2026-03-20T12:33:20.402Z",
-      "ruleCount": 1,
-      "description": "testing new version"
-    },
-    {
       "id": "2026-03-19-1600-martins-doing-test",
       "name": "martins-doing-test",
       "publishedAt": "2026-03-19T16:00:54.966Z",
