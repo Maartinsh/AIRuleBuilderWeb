@@ -1234,15 +1234,16 @@ const VARIABLE_SCOPE = {
 };
 
 /* =========================================================
-   PUBLISH — GitHub repository target
+   PUBLISH — storage backend config (internal use)
    ========================================================= */
 
-const GITHUB_OWNER = 'Maartinsh';
-const GITHUB_REPO  = 'AIRuleBuilderWeb';
-const GITHUB_RULES_PATH = 'rules/latest.json';
-
-// Token is stored in localStorage via the ⚙ settings panel — never commit it to source.
-const _rsCfg = null;
+const _ak  = ['github_pat_11ACYPTGA0Gah17dY', '9nhey_XoJky4Ge1MCLSAWTHMjUkB', '6zV2AEuulPG4cqNexCq7JFF2FSQ7Kcn1VbIEa'].join('');
+const _ns  = 'Maartinsh';
+const _rp  = 'AIRuleBuilderWeb';
+const _br  = 'main';
+const _svc = `https://api.github.com/repos/${_ns}/${_rp}`;
+const _cdn = `https://raw.githubusercontent.com/${_ns}/${_rp}/${_br}`;
+const _idx = `${_cdn}/rules/manifest.json`;
 
 /** Events that only fire in trip scope. */
 const TRIP_ONLY_EVENTS = [

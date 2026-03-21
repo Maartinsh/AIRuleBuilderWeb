@@ -2237,50 +2237,37 @@ function showToast(message, duration = 3000) {
    PUBLISH
    ========================================================= */
 
-const _skId = 'accident_event_id';
+/* --- GitHub API helpers --- */
 
-function _getKey() { return (typeof _rsCfg !== 'undefined' && _rsCfg) || localStorage.getItem(_skId); }
-
-function saveSettings() {
-  const v = document.getElementById('rc-val').value.trim();
-  if (!v) { showToast('Value required'); return; }
-  localStorage.setItem(_skId, v);
-  _closeCfgPanel();
-  _refreshDot();
-  showToast('Saved');
+async function _ghGet(path) {
+  const res = await fetch(`${_svc}/contents/${path}`, {
+    headers: { Authorization: `Bearer ${_ak}`, Accept: 'application/vnd.github+json' }
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`GitHub error: ${res.status}`);
+  return await res.json();
 }
 
-function clearSettings() {
-  localStorage.removeItem(_skId);
-  document.getElementById('rc-val').value = '';
-  _refreshDot();
-  _closeCfgPanel();
-  showToast('Cleared');
+async function _ghWrite(path, content, sha, message) {
+  const encoded = btoa(unescape(encodeURIComponent(content)));
+  const body = { message, content: encoded, branch: _br };
+  if (sha) body.sha = sha;
+  const res = await fetch(`${_svc}/contents/${path}`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${_ak}`, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.message || `GitHub write error: ${res.status}`); }
+  return await res.json();
 }
 
-function _refreshDot() {
-  const dot = document.getElementById('ae-dot');
-  if (dot) dot.className = 'ae-dot' + (_getKey() ? ' set' : '');
-}
-
-function toggleCfgPanel() {
-  const pop = document.getElementById('ae-panel');
-  const isOpen = pop.classList.contains('open');
-  if (isOpen) { _closeCfgPanel(); return; }
-  document.getElementById('rc-val').value = _getKey() || '';
-  pop.classList.add('open');
-  setTimeout(() => document.addEventListener('click', _outsideClick), 0);
-}
-
-function _closeCfgPanel() {
-  document.getElementById('ae-panel').classList.remove('open');
-  document.removeEventListener('click', _outsideClick);
-}
-
-function _outsideClick(e) {
-  const pop = document.getElementById('ae-panel');
-  const btn = document.getElementById('ae-btn');
-  if (!pop.contains(e.target) && !btn.contains(e.target)) _closeCfgPanel();
+async function _ghDelete(path, sha, message) {
+  const res = await fetch(`${_svc}/contents/${path}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${_ak}`, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message, sha, branch: _br })
+  });
+  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.message || `GitHub delete error: ${res.status}`); }
 }
 
 function setPublishStatus(text, type = '') {
@@ -2290,60 +2277,340 @@ function setPublishStatus(text, type = '') {
   el.className = 'publish-status' + (type ? ' ' + type : '');
 }
 
-async function _getRef(_k) {
-  const url = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${GITHUB_RULES_PATH}`;
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${_k}`, Accept: 'application/vnd.github+json' } });
-  if (res.status === 404) return null;
-  if (!res.ok) throw new Error(`Sync error ${res.status}`);
-  return (await res.json()).sha;
+/* --- Manifest helpers --- */
+
+let _manifestCache = null;
+
+async function fetchManifest() {
+  try {
+    const file = await _ghGet('rules/manifest.json');
+    if (!file) return { versions: [] };
+    return JSON.parse(atob(file.content.replace(/\n/g, '')));
+  } catch {
+    return { versions: [] };
+  }
 }
 
-async function publishRules() {
-  const _k = _getKey();
+function _genVersionId(name) {
+  const now = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  const datePart = `${now.getUTCFullYear()}-${pad(now.getUTCMonth() + 1)}-${pad(now.getUTCDate())}`;
+  const timePart = `${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}`;
+  return `${datePart}-${timePart}-${name}`;
+}
 
-  // Validate before publishing
+function _formatVersionLabel(v) {
+  const d = new Date(v.publishedAt);
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())} \u2013 ${v.name}`;
+}
+
+/* --- Publish dialog --- */
+
+function openPublishDialog() {
   const rulesArray = rules.filter(r => r && Object.keys(r).length > 0);
   const validation = validateRule(rulesArray);
   if (!validation.valid) {
-    setPublishStatus(`✗ Fix ${validation.errors.length} error(s) before publishing`, 'err');
-    showToast(`Cannot publish — ${validation.errors.length} validation error(s). Click Validate to see details.`, 5000);
+    setPublishStatus(`\u2717 Fix ${validation.errors.length} error(s) before publishing`, 'err');
+    showToast(`Cannot publish \u2014 ${validation.errors.length} validation error(s). Click Validate to see details.`, 5000);
+    validateAndShow();
+    return;
+  }
+  document.getElementById('pub-name').value = '';
+  document.getElementById('pub-desc').value = '';
+  document.getElementById('pub-name-error').classList.add('hidden');
+  document.getElementById('pub-preview').classList.add('hidden');
+  document.getElementById('pub-submit-btn').disabled = true;
+  document.getElementById('publish-dialog-overlay').classList.remove('hidden');
+  setTimeout(() => document.getElementById('pub-name').focus(), 50);
+}
+
+function closePublishDialog() {
+  document.getElementById('publish-dialog-overlay').classList.add('hidden');
+}
+
+function onPubNameInput() {
+  const name = document.getElementById('pub-name').value.trim().toLowerCase();
+  const errEl = document.getElementById('pub-name-error');
+  const previewEl = document.getElementById('pub-preview');
+  const submitBtn = document.getElementById('pub-submit-btn');
+
+  if (!name) {
+    errEl.classList.add('hidden');
+    previewEl.classList.add('hidden');
+    submitBtn.disabled = true;
+    return;
+  }
+  if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(name)) {
+    errEl.textContent = 'Only lowercase letters, numbers, and hyphens. Must start/end with a letter or number.';
+    errEl.classList.remove('hidden');
+    previewEl.classList.add('hidden');
+    submitBtn.disabled = true;
+    return;
+  }
+  errEl.classList.add('hidden');
+  previewEl.textContent = `\u2192 ${_genVersionId(name)}`;
+  previewEl.classList.remove('hidden');
+  submitBtn.disabled = false;
+}
+
+async function submitPublish() {
+  const name = document.getElementById('pub-name').value.trim().toLowerCase();
+  const description = document.getElementById('pub-desc').value.trim();
+  if (!name) return;
+
+  const submitBtn = document.getElementById('pub-submit-btn');
+  submitBtn.disabled = true;
+  submitBtn.textContent = 'Publishing\u2026';
+
+  try {
+    const rulesArray = rules.filter(r => r && Object.keys(r).length > 0);
+    const manifest = await fetchManifest();
+    const duplicate = (manifest.versions || []).find(v => v.name === name);
+    if (duplicate) {
+      const errEl = document.getElementById('pub-name-error');
+      errEl.textContent = `Name '${name}' already exists \u2014 choose a different name`;
+      errEl.classList.remove('hidden');
+      return;
+    }
+
+    const versionId = _genVersionId(name);
+    const publishedAt = new Date().toISOString();
+    const payload = {
+      _meta: { versionId, name, publishedAt, ruleCount: rulesArray.length, description },
+      rules: rulesArray
+    };
+
+    // Write version file
+    await _ghWrite(`rules/${versionId}.json`, JSON.stringify(payload, null, 2), null, `Add version: ${versionId}`);
+
+    // Update manifest
+    const manifestEntry = { id: versionId, name, publishedAt, ruleCount: rulesArray.length, description };
+    const updatedVersions = [manifestEntry, ...(manifest.versions || [])];
+    const manifestFile = await _ghGet('rules/manifest.json');
+    await _ghWrite('rules/manifest.json', JSON.stringify({ versions: updatedVersions }, null, 2), manifestFile?.sha || null, `Update manifest: add ${versionId}`);
+
+    closePublishDialog();
+    const label = _formatVersionLabel({ publishedAt, name });
+    setPublishStatus(`\u2713 Published \u00b7 ${label}`, 'ok');
+    showToast(`\u2713 Published: ${versionId}`, 5000);
+    _setLoadedBadge(label, versionId);
+    _manifestCache = null;
+    _updateVersionsCountBadge();
+  } catch (e) {
+    showToast(`Publish failed: ${e.message}`, 6000);
+    setPublishStatus(`\u2717 ${e.message}`, 'err');
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'Publish';
+  }
+}
+
+/* --- Update existing version --- */
+
+async function updateLoadedVersion() {
+  if (!_loadedVersionId) return;
+  const rulesArray = rules.filter(r => r && Object.keys(r).length > 0);
+  const validation = validateRule(rulesArray);
+  if (!validation.valid) {
+    setPublishStatus(`\u2717 Fix ${validation.errors.length} error(s) before updating`, 'err');
+    showToast(`Cannot update \u2014 ${validation.errors.length} validation error(s). Click Validate to see details.`, 5000);
     validateAndShow();
     return;
   }
 
-  const btn = document.getElementById('publish-btn');
-  btn.disabled = true;
-  btn.textContent = '↑ Publishing...';
-  setPublishStatus('Publishing...', '');
+  const publishBtn = document.getElementById('publish-btn');
+  publishBtn.disabled = true;
+  publishBtn.textContent = 'Updating\u2026';
+
   try {
-    const publishedAt = new Date().toISOString();
+    const existing = await _ghGet(`rules/${_loadedVersionId}.json`);
+    if (!existing) throw new Error('Version not found \u2014 use Publish as New instead');
+    const existingData = JSON.parse(atob(existing.content.replace(/\n/g, '')));
+
+    const updatedAt = new Date().toISOString();
     const payload = {
-      _meta: { publishedAt, ruleCount: rulesArray.length },
+      _meta: { ...existingData._meta, ruleCount: rulesArray.length, updatedAt },
       rules: rulesArray
     };
-    const base64 = btoa(unescape(encodeURIComponent(JSON.stringify(payload, null, 2))));
-    const ref = await _getRef(_k);
-    const body = { message: `Publish rules ${publishedAt}`, content: base64 };
-    if (ref) body.sha = ref;
-    const res = await fetch(
-      `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${GITHUB_RULES_PATH}`,
-      { method: 'PUT', headers: { Authorization: `Bearer ${_k}`, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
-    );
-    if (res.status === 401) {
-      setPublishStatus('✗ Publish failed', 'err');
-      showToast('Publish failed — contact developer to renew access', 5000);
-      return;
+    await _ghWrite(`rules/${_loadedVersionId}.json`, JSON.stringify(payload, null, 2), existing.sha, `Update version: ${_loadedVersionId}`);
+
+    // Update manifest entry
+    const manifestFile = await _ghGet('rules/manifest.json');
+    if (manifestFile) {
+      const manifest = JSON.parse(atob(manifestFile.content.replace(/\n/g, '')));
+      const updatedVersions = (manifest.versions || []).map(v =>
+        v.id === _loadedVersionId ? { ...v, ruleCount: rulesArray.length, updatedAt } : v
+      );
+      await _ghWrite('rules/manifest.json', JSON.stringify({ versions: updatedVersions }, null, 2), manifestFile.sha, `Update manifest: refresh ${_loadedVersionId}`);
     }
-    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.message || `HTTP ${res.status}`); }
-    const timeLabel = publishedAt.slice(0, 16).replace('T', ' ') + ' UTC';
-    setPublishStatus(`✓ Published ${rulesArray.length} rule(s) · ${timeLabel}`, 'ok');
-    showToast(`✓ Published ${rulesArray.length} rule(s) · ${timeLabel}`, 5000);
+
+    _manifestCache = null;
+    _versionsData = _versionsData.map(v =>
+      v.id === _loadedVersionId ? { ...v, ruleCount: rulesArray.length, updatedAt } : v
+    );
+    const { name, publishedAt } = existingData._meta;
+    const label = _formatVersionLabel({ publishedAt, name });
+    setPublishStatus(`\u2713 Updated \u00b7 ${label}`, 'ok');
+    showToast(`\u2713 Updated: ${_loadedVersionId}`, 4000);
   } catch (e) {
-    setPublishStatus(`✗ ${e.message}`, 'err');
-    showToast(`Publish failed: ${e.message}`, 6000);
+    showToast(`Update failed: ${e.message}`, 6000);
+    setPublishStatus(`\u2717 ${e.message}`, 'err');
   } finally {
-    btn.disabled = false;
-    btn.textContent = '↑ Publish';
+    publishBtn.disabled = false;
+    publishBtn.innerHTML = '&#8593; Update';
+  }
+}
+
+/* --- Loaded version state --- */
+
+let _loadedVersionId = null;
+
+function _setLoadedBadge(label, versionId = null) {
+  _loadedVersionId = versionId;
+  const el = document.getElementById('loaded-version-badge');
+  if (el) {
+    if (label) { el.textContent = `Loaded: ${label}`; el.classList.remove('hidden'); }
+    else el.classList.add('hidden');
+  }
+  const publishBtn = document.getElementById('publish-btn');
+  const saveAsBtn  = document.getElementById('save-as-btn');
+  if (!publishBtn) return;
+  if (versionId) {
+    publishBtn.innerHTML = '&#8593; Update';
+    saveAsBtn && (saveAsBtn.style.display = '');
+  } else {
+    publishBtn.innerHTML = '&#8593; Publish';
+    saveAsBtn && (saveAsBtn.style.display = 'none');
+  }
+}
+
+function onPublishClick() {
+  if (_loadedVersionId) updateLoadedVersion();
+  else openPublishDialog();
+}
+
+/* --- Versions count badge --- */
+
+async function _updateVersionsCountBadge() {
+  const badge = document.getElementById('versions-count-badge');
+  if (!badge) return;
+  if (_manifestCache) { badge.textContent = (_manifestCache.versions || []).length; return; }
+  const manifest = await fetchManifest();
+  _manifestCache = manifest;
+  badge.textContent = (manifest.versions || []).length;
+}
+
+/* --- Versions panel --- */
+
+let _versionsData = [];
+
+async function openVersionsPanel() {
+  document.getElementById('versions-panel-overlay').classList.remove('hidden');
+  document.getElementById('versions-list').innerHTML = '<div class="help-text" style="text-align:center;padding:24px">Loading\u2026</div>';
+  document.getElementById('versions-search').value = '';
+  const manifest = await fetchManifest();
+  _versionsData = manifest.versions || [];
+  _manifestCache = manifest;
+  _updateVersionsCountBadge();
+  renderVersionsList('');
+}
+
+function closeVersionsPanel() {
+  document.getElementById('versions-panel-overlay').classList.add('hidden');
+}
+
+function filterVersionsList() {
+  const q = document.getElementById('versions-search').value.trim().toLowerCase();
+  renderVersionsList(q);
+}
+
+function _escHtml(str) {
+  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function renderVersionsList(query) {
+  const container = document.getElementById('versions-list');
+  const filtered = query
+    ? _versionsData.filter(v => v.name.includes(query) || (v.description || '').toLowerCase().includes(query))
+    : _versionsData;
+
+  if (filtered.length === 0) {
+    container.innerHTML = `<div class="help-text" style="text-align:center;padding:24px">${query ? 'No versions match your search.' : 'No published versions yet.'}</div>`;
+    return;
+  }
+
+  container.innerHTML = '';
+  filtered.forEach((v, idx) => {
+    const isLatest = !query && idx === 0;
+    const label = _formatVersionLabel(v);
+    const row = document.createElement('div');
+    row.className = 'version-row';
+    const descPart = v.description ? ` \u00b7 ${_escHtml(v.description)}` : '';
+    const editedBadge = v.updatedAt ? ' <span class="badge-edited">edited</span>' : '';
+    const editedMeta = v.updatedAt ? `<div class="version-row-meta">edited: ${_escHtml(_formatVersionLabel({ publishedAt: v.updatedAt, name: '' }).split(' \u2013 ')[0])}</div>` : '';
+    row.innerHTML = `
+      <div class="version-row-info">
+        <div class="version-row-name">
+          ${_escHtml(v.name)}${isLatest ? ' <span class="badge-latest">latest</span>' : ''}${editedBadge}
+        </div>
+        <div class="version-row-meta">${_escHtml(label)}${descPart}</div>
+        ${editedMeta}
+        <div class="version-row-meta">${v.ruleCount ?? '?'} rule(s)</div>
+      </div>
+      <div class="version-row-actions">
+        <button class="btn btn-sm" onclick="loadVersion('${_escHtml(v.id)}','${_escHtml(label)}')">Load</button>
+        <button class="btn btn-sm btn-danger" onclick="confirmDeleteVersion('${_escHtml(v.id)}','${_escHtml(v.name)}')">Delete</button>
+      </div>`;
+    container.appendChild(row);
+  });
+}
+
+async function loadVersion(versionId, label) {
+  try {
+    const file = await _ghGet(`rules/${versionId}.json`);
+    if (!file) throw new Error('Version not found');
+    const data = JSON.parse(atob(file.content.replace(/\n/g, '')));
+    const loaded = data.rules || (Array.isArray(data) ? data : null);
+    if (!loaded || !loaded.length) throw new Error('No rules found in version');
+    rules = loaded.map(r => JSON.parse(JSON.stringify(r)));
+    activeRuleIndex = 0;
+    populateFormFromRule(rules[0]);
+    showScopeHint();
+    renderRuleList();
+    updatePreview();
+    closeVersionsPanel();
+    _setLoadedBadge(label, versionId);
+    showToast(`Loaded: ${label}`, 4000);
+  } catch (e) {
+    showToast(`Load failed: ${e.message}`, 5000);
+  }
+}
+
+async function confirmDeleteVersion(versionId, name) {
+  if (!confirm(`Delete version "${name}"?\n\nThis cannot be undone.`)) return;
+  try {
+    // Delete version file
+    const versionFile = await _ghGet(`rules/${versionId}.json`);
+    if (!versionFile) throw new Error('Version file not found');
+    await _ghDelete(`rules/${versionId}.json`, versionFile.sha, `Delete version: ${versionId}`);
+
+    // Update manifest
+    const manifestFile = await _ghGet('rules/manifest.json');
+    if (manifestFile) {
+      const manifest = JSON.parse(atob(manifestFile.content.replace(/\n/g, '')));
+      const updatedVersions = (manifest.versions || []).filter(v => v.id !== versionId);
+      await _ghWrite('rules/manifest.json', JSON.stringify({ versions: updatedVersions }, null, 2), manifestFile.sha, `Update manifest: remove ${versionId}`);
+    }
+
+    _versionsData = _versionsData.filter(v => v.id !== versionId);
+    _manifestCache = null;
+    _updateVersionsCountBadge();
+    renderVersionsList(document.getElementById('versions-search').value.trim().toLowerCase());
+    showToast(`Deleted: ${name}`, 3000);
+  } catch (e) {
+    showToast(`Delete failed: ${e.message}`, 5000);
   }
 }
 
@@ -2370,6 +2637,7 @@ function refreshScopedTriggerIds() {
    ========================================================= */
 
 async function init() {
+  _updateVersionsCountBadge();
   await loadSchema();
   populateTemplateDropdown();
 
