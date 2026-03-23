@@ -1,0 +1,28 @@
+{
+  "_meta": {
+    "versionId": "2026-03-23-0842-testing123",
+    "name": "testing123",
+    "publishedAt": "2026-03-23T08:42:49.198Z",
+    "ruleCount": 1,
+    "description": ""
+  },
+  "rules": [
+    {
+      "id": "DZIRCIEMU_STREET_RULE1",
+      "description": "Doing simple test",
+      "sessionScope": "global",
+      "throttle": {
+        "cooldownMinutes": 30,
+        "maxTriggersPerDay": 3
+      },
+      "output": {
+        "instructions": "Testing output"
+      },
+      "triggerExpression": {
+        "type": "SINGLE",
+        "id": "trip_started",
+        "dataSource": "SmartDrive"
+      }
+    }
+  ]
+}
