@@ -1,11 +1,3 @@
-# Rule Builder Web UI
-
-Source mirror repo: https://github.com/Maartinsh/AIRuleBuilderWeb
-
-When updating files here, push the changes to the mirror repo to deploy.
-
----
-
 ## Publishing & Versioning
 
 Rules are published as named, timestamped versions stored in the `rules/` directory of the mirror repo. A lightweight `rules/manifest.json` index tracks all versions.
@@ -38,28 +30,6 @@ Click **Versions · N** in the toolbar to open the version manager panel:
 
 ---
 
-## Netlify Setup
-
-The publish and delete functions run as Netlify serverless functions. Deploy the repo to Netlify and set the following environment variables in the **Netlify dashboard** (never in code):
-
-| Variable         | Description |
-|-----------------|-------------|
-| `GITHUB_PAT`    | Fine-grained GitHub personal access token. Repo: `AIRuleBuilderWeb`. Permission: **Contents — Read & Write** |
-| `PUBLISH_SECRET` | Shared team passphrase. Share with anyone who needs to publish or delete versions. |
-
-The `netlify.toml` at the repo root configures:
-- Functions directory: `netlify/functions/`
-- Publish directory: `web-rule-builder/`
-
-### Functions
-
-| Function | Method | Description |
-|----------|--------|-------------|
-| `publish-rules` | POST | Validates passphrase, checks name uniqueness, writes version file + updates manifest |
-| `delete-version` | DELETE | Validates passphrase, deletes version file + updates manifest |
-
----
-
 ## Mobile Integration
 
 Mobile reads rules via raw GitHub URLs — no auth needed:
@@ -78,9 +48,3 @@ Version selection strategies:
 - **Remote Config**: use Firebase Remote Config to change the version without an app update
 
 Mobile calls `engine.reloadRules(fetchedJson)` as before — no SDK changes needed.
-
----
-
-## MZONE Migration Path
-
-When MZONE backend is ready, swap the Netlify function URLs (`/.netlify/functions/…`) for MZONE API endpoints, and the manifest/version raw GitHub URLs for MZONE CDN URLs. The rule JSON format, manifest structure, and mobile fetch pattern stay identical — zero mobile SDK changes needed.
