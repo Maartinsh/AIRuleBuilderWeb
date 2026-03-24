@@ -1,6 +1,13 @@
 {
   "versions": [
     {
+      "id": "2026-03-24-0949-qarulesv226mar20261149am",
+      "name": "qarulesv226mar20261149am",
+      "publishedAt": "2026-03-24T09:49:52.151Z",
+      "ruleCount": 7,
+      "description": ""
+    },
+    {
       "id": "2026-03-24-0929-qarulesv126mar20261126am",
       "name": "qarulesv126mar20261126am",
       "publishedAt": "2026-03-24T09:29:39.004Z",
