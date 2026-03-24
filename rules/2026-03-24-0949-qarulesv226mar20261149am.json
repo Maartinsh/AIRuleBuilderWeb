@@ -5,7 +5,7 @@
     "publishedAt": "2026-03-24T09:49:52.151Z",
     "ruleCount": 7,
     "description": "",
-    "updatedAt": "2026-03-24T10:22:50.660Z"
+    "updatedAt": "2026-03-24T10:57:24.207Z"
   },
   "rules": [
     {
@@ -110,8 +110,8 @@
       }
     },
     {
-      "id": "QA FleetDrive Rule: trigger the message if the driving speed is higher than 50 km/h",
-      "description": "QA FleetDrive Rule: trigger the message if the driving speed is higher than 50 km/h",
+      "id": "QA FleetDrive Rule: trigger the message if the driving speed is higher than 20 km/h",
+      "description": "QA FleetDrive Rule: trigger the message if the driving speed is higher than 20 km/h",
       "sessionScope": "trip",
       "priority": 10,
       "throttle": {
@@ -131,7 +131,7 @@
             "type": "Value",
             "parameter": "speed",
             "operator": ">",
-            "value": 50
+            "value": 21
           }
         ]
       }
