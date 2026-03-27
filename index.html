@@ -863,6 +863,8 @@
         <button class="btn btn-primary" onclick="validateAndShow()">Validate</button>
         <button class="btn" onclick="copyJSON()">Copy JSON</button>
         <button class="btn" onclick="downloadJSON()">Download</button>
+        <button class="btn" onclick="document.getElementById('upload-json-input').click()">Upload JSON</button>
+        <input type="file" id="upload-json-input" accept=".json,application/json" style="display:none" onchange="uploadJSON(this)">
       </div>
     </div>
 

@@ -1851,6 +1851,55 @@ function validateAndShow() {
 }
 
 /**
+ * Handles JSON file upload. Parses the file, validates it, then loads all
+ * rules into the editor and shows validation results in the preview panel.
+ */
+function uploadJSON(input) {
+  const file = input.files[0];
+  input.value = ''; // reset so same file can be re-uploaded
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    let parsed;
+    try {
+      parsed = JSON.parse(e.target.result);
+    } catch (err) {
+      showToast(`Invalid JSON: ${err.message}`, 5000);
+      return;
+    }
+
+    // Normalise: accept a single rule object or an array of rules
+    const loaded = Array.isArray(parsed) ? parsed : (parsed.rules ? parsed.rules : [parsed]);
+    if (!loaded.length) {
+      showToast('No rules found in uploaded file.', 4000);
+      return;
+    }
+
+    // Validate using the existing validation pipeline
+    const results = validateRule(loaded);
+    const panel = document.getElementById('preview-validation');
+    showValidation(panel, results);
+
+    // Load into editor regardless of errors so the user can fix them
+    rules = loaded.map(r => JSON.parse(JSON.stringify(r)));
+    activeRuleIndex = 0;
+    populateFormFromRule(rules[0]);
+    showScopeHint();
+    renderRuleList();
+    updatePreview();
+    highlightErrorFields(rules);
+
+    if (results.valid) {
+      showToast(`Loaded ${rules.length} rule(s) — validation passed!`, 4000);
+    } else {
+      showToast(`Loaded with ${results.errors.length} error(s) — see validation panel.`, 5000);
+    }
+  };
+  reader.readAsText(file);
+}
+
+/**
  * Validates rule JSON. Returns { valid, errors[], warnings[] }.
  */
 function validateRule(jsonArray) {
