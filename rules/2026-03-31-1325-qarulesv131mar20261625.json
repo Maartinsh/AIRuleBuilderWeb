@@ -5,7 +5,7 @@
     "publishedAt": "2026-03-31T13:25:12.341Z",
     "ruleCount": 7,
     "description": "",
-    "updatedAt": "2026-03-31T14:04:30.764Z"
+    "updatedAt": "2026-03-31T14:14:47.463Z"
   },
   "rules": [
     {
@@ -86,7 +86,7 @@
         "maxTriggersPerDay": 5
       },
       "output": {
-        "instructions": "\"Tell to the driver that the start for the day of week has been done well, let him keep going. Tone should be: calm & friendly. Additional information to use in your response: day_of_week = TUE\"",
+        "instructions": "\"Tell to the driver that the start for the day has been done well, let him keep going. Tone should be: calm & friendly. Additional information to use in your response: day_of_week = TUE\"",
         "tone": "calm & friendly",
         "variables": [
           {
