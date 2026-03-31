@@ -1,0 +1,177 @@
+{
+  "_meta": {
+    "versionId": "2026-03-31-1325-qarulesv131mar20261625",
+    "name": "qarulesv131mar20261625",
+    "publishedAt": "2026-03-31T13:25:12.341Z",
+    "ruleCount": 7,
+    "description": ""
+  },
+  "rules": [
+    {
+      "id": "QA FleetDrive Rule: trigger the message if a driver is using the phone while driving",
+      "sessionScope": "trip",
+      "priority": 9,
+      "throttle": {
+        "cooldownMinutes": 1,
+        "maxTriggersPerDay": 10
+      },
+      "output": {
+        "instructions": "Generate the message to a driver to inform him about local driving rules do not allow him to use the phone manually while driving.",
+        "tone": "calm and informative"
+      },
+      "triggerExpression": {
+        "type": "SINGLE",
+        "id": "distracted_phone_use",
+        "dataSource": "SmartDrive",
+        "conditions": [
+          {
+            "type": "Value",
+            "parameter": "duration_millis",
+            "operator": ">",
+            "value": 1000
+          }
+        ]
+      }
+    },
+    {
+      "id": "QA FleetDrive Rule: please take a break after driving more than 4 hours in a row",
+      "sessionScope": "trip",
+      "priority": 8,
+      "throttle": {
+        "cooldownMinutes": 1,
+        "maxTriggersPerDay": 1
+      },
+      "output": {
+        "instructions": "Generate a friendly message to a driver to inform him about coffee break need after more than 4 hours of driving in a row",
+        "tone": "calm & friendly"
+      },
+      "triggerExpression": {
+        "type": "SINGLE",
+        "id": "trip_duration",
+        "dataSource": "SmartDrive",
+        "conditions": [
+          {
+            "type": "Value",
+            "parameter": "duration",
+            "operator": ">",
+            "value": 240
+          }
+        ]
+      }
+    },
+    {
+      "id": "QA FleetDrive BLE vehicle: beacon connected",
+      "sessionScope": "global",
+      "throttle": {
+        "cooldownMinutes": 30,
+        "maxTriggersPerDay": 3
+      },
+      "output": {
+        "instructions": "Generate the message to the driver saying that beacon is connected successfully to let him know that the app is ready to start trip recording.",
+        "tone": "calm & friendly"
+      },
+      "triggerExpression": {
+        "type": "SINGLE",
+        "id": "beacon_connected",
+        "dataSource": "BLE"
+      }
+    },
+    {
+      "id": "QA FleetDrive Rule to welcome a driver",
+      "sessionScope": "trip",
+      "priority": 7,
+      "throttle": {
+        "cooldownMinutes": 5,
+        "maxTriggersPerDay": 5
+      },
+      "output": {
+        "instructions": "\"Tell to the driver that the start for the {{day_of_week}} has been done well, let him keep going. Tone should be: calm & friendly. Additional information to use in your response: day_of_week = day of today.\"",
+        "tone": "calm & friendly",
+        "variables": [
+          {
+            "dataSource": "DateTime",
+            "id": "day_of_week"
+          }
+        ]
+      },
+      "triggerExpression": {
+        "type": "SINGLE",
+        "id": "trip_distance",
+        "dataSource": "SmartDrive",
+        "conditions": [
+          {
+            "type": "Value",
+            "parameter": "distance",
+            "operator": "<",
+            "value": 1000
+          }
+        ]
+      }
+    },
+    {
+      "id": "QA FleetDrive Rule: trigger the message if the driving speed is higher than 20 km/h",
+      "description": "QA FleetDrive Rule: trigger the message if the driving speed is higher than 20 km/h",
+      "sessionScope": "trip",
+      "priority": 10,
+      "throttle": {
+        "cooldownMinutes": 1,
+        "maxTriggersPerDay": 10
+      },
+      "output": {
+        "instructions": "Generate the message for the driver to prevent the over speeding.",
+        "tone": "calm and urgent"
+      },
+      "triggerExpression": {
+        "type": "SINGLE",
+        "id": "trip_speed",
+        "dataSource": "SmartDrive",
+        "conditions": [
+          {
+            "type": "Value",
+            "parameter": "speed",
+            "operator": ">",
+            "value": 21
+          }
+        ]
+      }
+    },
+    {
+      "id": "QA FleetDrive Rule about low battery in the phone",
+      "description": "QA FleetDrive Rule about low battery in the phone",
+      "sessionScope": "daily",
+      "priority": 10,
+      "throttle": {
+        "cooldownMinutes": 1,
+        "maxTriggersPerDay": 6
+      },
+      "output": {
+        "instructions": "Generate the message to a driver to inform him about low battery of the phone",
+        "tone": "calm and concerned"
+      },
+      "triggerExpression": {
+        "type": "SINGLE",
+        "id": "battery_low",
+        "dataSource": "Phone"
+      }
+    },
+    {
+      "id": "QA FleetDrive Rule to say greetings on trip end",
+      "description": "QA FleetDrive Rule to say greetings on trip end",
+      "sessionScope": "trip",
+      "priority": 10,
+      "throttle": {
+        "cooldownMinutes": 1,
+        "maxTriggersPerDay": 5
+      },
+      "output": {
+        "instructions": "Generate a message for the driver with good greetings on successful trip end",
+        "tone": "professional & friendly"
+      },
+      "triggerExpression": {
+        "type": "SINGLE",
+        "id": "trip_ended",
+        "dataSource": "SmartDrive"
+      }
+    }
+  ]
+}
