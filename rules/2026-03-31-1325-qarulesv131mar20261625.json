@@ -4,7 +4,8 @@
     "name": "qarulesv131mar20261625",
     "publishedAt": "2026-03-31T13:25:12.341Z",
     "ruleCount": 7,
-    "description": ""
+    "description": "",
+    "updatedAt": "2026-03-31T13:27:35.068Z"
   },
   "rules": [
     {
@@ -85,7 +86,7 @@
         "maxTriggersPerDay": 5
       },
       "output": {
-        "instructions": "\"Tell to the driver that the start for the {{day_of_week}} has been done well, let him keep going. Tone should be: calm & friendly. Additional information to use in your response: day_of_week = day of today.\"",
+        "instructions": "\"Tell to the driver that the start for the {{day_of_week}} has been done well, let him keep going. Tone should be: calm & friendly. Additional information to use in your response: day_of_week should get a name of day of today.\"",
         "tone": "calm & friendly",
         "variables": [
           {
