@@ -3,9 +3,9 @@
     "versionId": "2026-04-01-1305-qarulesv101apr20261604",
     "name": "qarulesv101apr20261604",
     "publishedAt": "2026-04-01T13:05:02.231Z",
-    "ruleCount": 10,
+    "ruleCount": 11,
     "description": "",
-    "updatedAt": "2026-04-01T13:24:35.862Z"
+    "updatedAt": "2026-04-01T13:26:05.621Z"
   },
   "rules": [
     {
@@ -242,6 +242,39 @@
       "triggerExpression": {
         "type": "SINGLE",
         "id": "poi_entry",
+        "dataSource": "POI",
+        "conditions": [
+          {
+            "type": "Value",
+            "parameter": "poi_id",
+            "operator": "==",
+            "value": ""
+          }
+        ],
+        "POI": {
+          "coordinates": {
+            "lat": 56.92904,
+            "lng": 24.0366
+          },
+          "radius": "1000"
+        }
+      }
+    },
+    {
+      "id": "QA FleetDrive Rule POI Spice Exit",
+      "sessionScope": "trip",
+      "priority": 7,
+      "throttle": {
+        "cooldownMinutes": 1,
+        "maxTriggersPerDay": 3
+      },
+      "output": {
+        "instructions": "Say goodbye to the driver with the place name.",
+        "tone": "calm & friendly"
+      },
+      "triggerExpression": {
+        "type": "SINGLE",
+        "id": "poi_exit",
         "dataSource": "POI",
         "conditions": [
           {
