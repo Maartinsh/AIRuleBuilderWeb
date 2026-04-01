@@ -3,8 +3,9 @@
     "versionId": "2026-04-01-1305-qarulesv101apr20261604",
     "name": "qarulesv101apr20261604",
     "publishedAt": "2026-04-01T13:05:02.231Z",
-    "ruleCount": 9,
-    "description": ""
+    "ruleCount": 10,
+    "description": "",
+    "updatedAt": "2026-04-01T13:24:35.862Z"
   },
   "rules": [
     {
@@ -223,6 +224,40 @@
             "value": ""
           }
         ]
+      }
+    },
+    {
+      "id": "QA FleetDrive Rule POI Spice Entry",
+      "description": "Rule to test POI",
+      "sessionScope": "trip",
+      "priority": 7,
+      "throttle": {
+        "cooldownMinutes": 3,
+        "maxTriggersPerDay": 3
+      },
+      "output": {
+        "instructions": "Say hello to the driver on place entry event. Add there a place name also.",
+        "tone": "calm & friendly"
+      },
+      "triggerExpression": {
+        "type": "SINGLE",
+        "id": "poi_entry",
+        "dataSource": "POI",
+        "conditions": [
+          {
+            "type": "Value",
+            "parameter": "poi_id",
+            "operator": "==",
+            "value": ""
+          }
+        ],
+        "POI": {
+          "coordinates": {
+            "lat": 56.92904,
+            "lng": 24.0366
+          },
+          "radius": "1000"
+        }
       }
     }
   ]
