@@ -5,7 +5,7 @@
     "publishedAt": "2026-04-01T13:05:02.231Z",
     "ruleCount": 11,
     "description": "",
-    "updatedAt": "2026-04-01T13:26:05.621Z"
+    "updatedAt": "2026-04-01T13:26:50.030Z"
   },
   "rules": [
     {
@@ -197,7 +197,14 @@
             "operator": "==",
             "value": ""
           }
-        ]
+        ],
+        "POI": {
+          "coordinates": {
+            "lat": 56.92125,
+            "lng": 24.00128
+          },
+          "radius": "1000"
+        }
       }
     },
     {
