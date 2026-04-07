@@ -571,12 +571,11 @@ function renderSingleTrigger(container, depth, data = null) {
  */
 function renderPoiSubForm(container, data = null) {
   container.innerHTML = '';
-  const toggleRow = h('div', { className: 'toggle-row', style: 'margin-top:12px' });
+  const toggleRow = h('div', { className: 'toggle-row', style: 'margin-top:12px; opacity:0.4; pointer-events:none' });
   const toggle = h('label', { className: 'toggle-switch' });
-  const cb = h('input', { type: 'checkbox' });
-  if (data) cb.checked = true;
+  const cb = h('input', { type: 'checkbox', disabled: true });
   toggle.append(cb, h('span', { className: 'toggle-slider' }));
-  toggleRow.append(toggle, h('label', { style: 'text-transform:none;font-weight:400;color:var(--color-text)' }, 'Add POI coordinates'));
+  toggleRow.append(toggle, h('label', { style: 'text-transform:none;font-weight:400;color:var(--color-text)' }, 'Add POI coordinates (coming soon)'));
   container.append(toggleRow);
 
   const fields = h('div', { className: data ? '' : 'hidden' });
@@ -704,7 +703,7 @@ function renderConditionFields(container, type, dataSource, data = null, trigger
         const fieldInfo = paramTypeMap[paramName];
         const isNumeric = fieldInfo
           ? ['int', 'double'].includes(fieldInfo.type)
-          : !!triggerConfig?.validOperators;
+          : false;
         const isBool = fieldInfo?.type === 'bool';
         const typeHint = fieldInfo ? ` (${fieldInfo.label})` : '';
         const baseHint = triggerConfig?.valueHint || (isBool ? 'true or false' : isNumeric ? 'number' : 'value');

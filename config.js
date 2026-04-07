@@ -83,7 +83,7 @@ const PARAMETERS = {
     'distance', 'duration', 'max_speed', 'max_rpm', 'stationary_time',
     'latitude', 'longitude', 'brake_force', 'acceleration_force'
   ],
-  POI: ['poi_type', 'poi_id', 'poi_name'],
+  POI: ['poi_id', 'poi_name'],
   DateTime: ['hour', 'day_of_week'],
   Phone: ['hour', 'day_of_week', 'battery_level', 'is_charging'],
   Wellness: [
@@ -153,6 +153,7 @@ const DATA_SOURCES = [
 const OPERATORS = ['==', '!=', '<', '<=', '>', '>=', 'in'];
 const CONDITION_TYPES = ['Value', 'TimeRange', 'Time', 'Comparison', 'EventCount', 'RelativeTimeWindow'];
 const NUMERIC_OPERATORS = ['==', '!=', '<', '<=', '>', '>='];
+const STRING_OPERATORS = ['==', '!=', 'contains', 'in'];
 const TIME_PERIODS = ['currentMonth', 'lastMonth', 'currentWeek', 'lastWeek'];
 
 /* =========================================================
@@ -433,21 +434,21 @@ const TRIGGER_CONDITION_CONFIG = {
   poi_entry: {
     conditionRequired: false,
     defaultConditionType: 'Value',
-    defaultParameter: 'poi_type',
+    defaultParameter: 'poi_name',
     parameterLocked: false,
     validConditionTypes: ['Value'],
-    validOperators: OPERATORS,
-    valueHint: 'POI type or name',
+    validOperators: STRING_OPERATORS,
+    valueHint: 'e.g. "Max Furniture" or a POI ID',
     hideSource: true
   },
   poi_exit: {
     conditionRequired: false,
     defaultConditionType: 'Value',
-    defaultParameter: 'poi_type',
+    defaultParameter: 'poi_name',
     parameterLocked: false,
     validConditionTypes: ['Value'],
-    validOperators: OPERATORS,
-    valueHint: 'POI type or name',
+    validOperators: STRING_OPERATORS,
+    valueHint: 'e.g. "Max Furniture" or a POI ID',
     hideSource: true
   },
 
