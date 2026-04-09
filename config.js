@@ -153,7 +153,7 @@ const DATA_SOURCES = [
 const OPERATORS = ['==', '!=', '<', '<=', '>', '>=', 'in'];
 const CONDITION_TYPES = ['Value', 'TimeRange', 'Time', 'Comparison', 'EventCount', 'RelativeTimeWindow'];
 const NUMERIC_OPERATORS = ['==', '!=', '<', '<=', '>', '>='];
-const STRING_OPERATORS = ['==', '!=', 'contains', 'in'];
+const STRING_OPERATORS = ['==', '!=', 'in'];
 const TIME_PERIODS = ['currentMonth', 'lastMonth', 'currentWeek', 'lastWeek'];
 
 /* =========================================================

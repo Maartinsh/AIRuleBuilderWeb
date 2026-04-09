@@ -201,10 +201,10 @@
         "value": {
           "description": "Comparison value. String/number/boolean for most operators, array of strings for 'in'.",
           "oneOf": [
-            { "type": "string" },
+            { "type": "string", "minLength": 1 },
             { "type": "number" },
             { "type": "boolean" },
-            { "type": "array", "items": { "type": "string" } }
+            { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1 }
           ]
         },
         "source": {

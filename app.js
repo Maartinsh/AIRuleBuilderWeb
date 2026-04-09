@@ -23,6 +23,16 @@ let schema = null;
 let ajvInstance = null;
 let schemaValidator = null;
 
+const _TIME_RE = /^\d{1,2}:\d{2}$/;
+const _FROM_NOW_RE = /^[+-]?\d+[hdm]$/;
+const _VALID_OPS = new Set(['==', '!=', '<', '<=', '>', '>=', 'in']);
+
+function _isValidTime(v) {
+  if (!_TIME_RE.test(v)) return false;
+  const [h, m] = v.split(':').map(Number);
+  return h >= 0 && h <= 23 && m >= 0 && m <= 59;
+}
+
 const EMBEDDED_SCHEMA = null; // Will attempt fetch first
 
 async function loadSchema() {
@@ -1951,6 +1961,9 @@ function validateRule(jsonArray) {
 
     // Required conditions check
     validateRequiredConditions(rule.triggerExpression, errors, prefix);
+
+    // Condition field content validation (format, required fields per type)
+    validateConditionFields(rule.triggerExpression, errors, prefix);
   }
 
   return {
@@ -1995,6 +2008,68 @@ function validateRequiredConditions(expr, errors, prefix) {
   }
   if (expr.type === 'GROUP' && expr.expressions) {
     expr.expressions.forEach(e => validateRequiredConditions(e, errors, prefix));
+  }
+}
+
+/**
+ * Recursively validates condition field content for every SINGLE expression.
+ * Catches missing/malformed fields that Ajv would catch but custom validation previously missed.
+ */
+// Parameters that must always be strings — a numeric value is always wrong for these.
+const _STRING_ONLY_PARAMS = new Set([
+  'poi_name', 'poi_id', 'day_of_week', 'RouteState', 'status',
+  'driving_conditions', 'closestFuelStation', 'closestPlaceName',
+  'closestPlaceAddress'
+]);
+
+function validateConditionFields(expr, errors, prefix) {
+  if (!expr) return;
+  if (expr.type === 'SINGLE' && expr.conditions) {
+    expr.conditions.forEach((cond, ci) => {
+      const cp = `${prefix}Condition[${ci}] (${cond.type}): `;
+      switch (cond.type) {
+        case 'Value':
+          if (!cond.parameter) errors.push(`${cp}parameter is required`);
+          if (!_VALID_OPS.has(cond.operator)) errors.push(`${cp}operator "${cond.operator || ''}" is missing or invalid`);
+          if (cond.value === undefined || cond.value === null) {
+            errors.push(`${cp}value is required`);
+          } else if (typeof cond.value === 'string' && cond.value === '') {
+            errors.push(`${cp}value must not be empty`);
+          } else if (typeof cond.value === 'number' && cond.parameter && _STRING_ONLY_PARAMS.has(cond.parameter)) {
+            errors.push(`${cp}parameter "${cond.parameter}" expects a string value, not a number`);
+          }
+          break;
+        case 'TimeRange':
+          if (!cond.from) errors.push(`${cp}from is required`);
+          else if (!_isValidTime(cond.from)) errors.push(`${cp}from must be HH:MM 24-hour (e.g. "08:00")`);
+          if (!cond.to) errors.push(`${cp}to is required`);
+          else if (!_isValidTime(cond.to)) errors.push(`${cp}to must be HH:MM 24-hour (e.g. "20:00")`);
+          break;
+        case 'Time':
+          if (!_VALID_OPS.has(cond.operator)) errors.push(`${cp}operator is missing or invalid`);
+          if (!cond.value) errors.push(`${cp}value is required`);
+          else if (!_isValidTime(cond.value)) errors.push(`${cp}value must be HH:MM 24-hour (e.g. "08:00")`);
+          break;
+        case 'RelativeTimeWindow':
+          if (!cond.parameter) errors.push(`${cp}parameter is required`);
+          if (!cond.fromNow) errors.push(`${cp}fromNow is required`);
+          else if (!_FROM_NOW_RE.test(cond.fromNow)) errors.push(`${cp}fromNow must match ±N[hdm] (e.g. "1h", "-4h", "30m")`);
+          break;
+        case 'EventCount':
+          if (!cond.eventName) errors.push(`${cp}eventName is required`);
+          if (!_VALID_OPS.has(cond.operator)) errors.push(`${cp}operator is missing or invalid`);
+          if (typeof cond.value !== 'number' || !Number.isInteger(cond.value)) errors.push(`${cp}value must be an integer`);
+          break;
+        case 'Comparison':
+          if (!cond.parameter && !cond.leaderboardId) errors.push(`${cp}parameter or leaderboardId is required`);
+          if (!_VALID_OPS.has(cond.operator)) errors.push(`${cp}operator is missing or invalid`);
+          if (cond.value === undefined || cond.value === null) errors.push(`${cp}value is required`);
+          break;
+      }
+    });
+  }
+  if (expr.type === 'GROUP' && expr.expressions) {
+    expr.expressions.forEach(e => validateConditionFields(e, errors, prefix));
   }
 }
 
@@ -2094,6 +2169,11 @@ function highlightErrorFields(jsonArray) {
   if (rule.triggerExpression) {
     highlightMissingConditions(triggerRoot, rule.triggerExpression);
   }
+
+  // Highlight individual condition inputs with invalid/missing values
+  if (triggerRoot) {
+    highlightConditionFieldErrors(triggerRoot);
+  }
 }
 
 function highlightMissingConditions(container, expr) {
@@ -2118,6 +2198,52 @@ function highlightMissingConditions(container, expr) {
   if (expr.type === 'GROUP' && expr.expressions) {
     expr.expressions.forEach(e => highlightMissingConditions(container, e));
   }
+}
+
+/**
+ * Highlights condition input fields that have invalid or missing values.
+ * Walks all condition cards inside the trigger root.
+ */
+function highlightConditionFieldErrors(triggerRoot) {
+  triggerRoot.querySelectorAll('[data-field="conditionType"]').forEach(typeEl => {
+    const type = typeEl.value;
+    const fields = typeEl.closest('.item-card')?.querySelector('.item-fields');
+    if (!fields) return;
+
+    const get = (field) => fields.querySelector(`[data-field="${field}"]`);
+    const markIfEmpty = (el) => { if (el && !el.value?.trim()) el.classList.add('field-error'); };
+    const markIfBadTime = (el) => { if (el && !_isValidTime(el.value)) el.classList.add('field-error'); };
+    const markIfBadOp = (el) => { if (el && !_VALID_OPS.has(el.value)) el.classList.add('field-error'); };
+
+    switch (type) {
+      case 'Value':
+        markIfEmpty(get('parameter'));
+        markIfBadOp(get('operator'));
+        { const val = get('value'); if (val && !val.value?.trim()) val.classList.add('field-error'); }
+        break;
+      case 'TimeRange':
+        markIfBadTime(get('from'));
+        markIfBadTime(get('to'));
+        break;
+      case 'Time':
+        markIfBadOp(get('operator'));
+        markIfBadTime(get('value'));
+        break;
+      case 'RelativeTimeWindow':
+        markIfEmpty(get('parameter'));
+        { const fn = get('fromNow'); if (fn && !_FROM_NOW_RE.test(fn.value)) fn.classList.add('field-error'); }
+        break;
+      case 'EventCount':
+        markIfEmpty(get('eventName'));
+        markIfBadOp(get('operator'));
+        break;
+      case 'Comparison':
+        { const p = get('parameter'); const lb = get('leaderboardId');
+          if (p && lb && !p.value?.trim() && !lb.value?.trim()) p.classList.add('field-error'); }
+        markIfBadOp(get('operator'));
+        break;
+    }
+  });
 }
 
 /* =========================================================
