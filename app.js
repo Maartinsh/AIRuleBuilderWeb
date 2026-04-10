@@ -476,7 +476,15 @@ function renderSingleTrigger(container, depth, data = null) {
     }
     _prevTriggerId = tid;
 
-    if (cfg?.mhubFlagEvent) {
+    if (cfg?.noConditions) {
+      // Job destination triggers: engine handles matching automatically, conditions not supported.
+      condList.innerHTML = '';
+      condWrapper.classList.add('hidden');
+      condToggleLink.classList.add('hidden');
+      condRequiredHint.classList.add('hidden');
+      eventOnlyHint.textContent = 'Engine matches job locations automatically \u2014 conditions are not supported for this trigger.';
+      eventOnlyHint.classList.remove('hidden');
+    } else if (cfg?.mhubFlagEvent) {
       // MHub flag event: show a read-only flag state badge, no condition editor.
       condList.innerHTML = '';
       condWrapper.classList.add('hidden');
@@ -1962,6 +1970,9 @@ function validateRule(jsonArray) {
     // Required conditions check
     validateRequiredConditions(rule.triggerExpression, errors, prefix);
 
+    // Job destination triggers must not have conditions
+    validateNoConditions(rule.triggerExpression, errors, prefix);
+
     // Condition field content validation (format, required fields per type)
     validateConditionFields(rule.triggerExpression, errors, prefix);
   }
@@ -2008,6 +2019,19 @@ function validateRequiredConditions(expr, errors, prefix) {
   }
   if (expr.type === 'GROUP' && expr.expressions) {
     expr.expressions.forEach(e => validateRequiredConditions(e, errors, prefix));
+  }
+}
+
+function validateNoConditions(expr, errors, prefix) {
+  if (!expr) return;
+  if (expr.type === 'SINGLE' && expr.id) {
+    const cfg = TRIGGER_CONDITION_CONFIG[expr.id];
+    if (cfg?.noConditions && expr.conditions?.length > 0) {
+      errors.push(`${prefix}Trigger "${expr.id}" does not support conditions — the engine matches job locations automatically`);
+    }
+  }
+  if (expr.type === 'GROUP' && expr.expressions) {
+    expr.expressions.forEach(e => validateNoConditions(e, errors, prefix));
   }
 }
 

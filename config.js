@@ -431,6 +431,14 @@ const TRIGGER_CONDITION_CONFIG = {
   mhub_canbus_disconnected: { conditionRequired: false, mhubFlagEvent: true, flagDescription: 'CAN Bus <strong>→ DISCONNECTED</strong>',       hideSource: true },
 
   // ── POI ──
+  job_destination_entry: {
+    noConditions: true,
+    hideSource: true
+  },
+  job_destination_exit: {
+    noConditions: true,
+    hideSource: true
+  },
   poi_entry: {
     conditionRequired: false,
     defaultConditionType: 'Value',
