@@ -1774,17 +1774,48 @@ function deleteRule(index) {
   showToast(`Deleted "${deletedId}"`);
 }
 
+function duplicateRule(index) {
+  if (index < 0 || index >= rules.length) return;
+  saveActiveRule();
+  const source = rules[index];
+  // Deep clone via JSON round-trip (rules are plain JSON objects)
+  const clone = JSON.parse(JSON.stringify(source));
+  clone.id = _uniqueRuleId(source.id || `rule_${index + 1}`);
+  rules.splice(index + 1, 0, clone);
+  activeRuleIndex = index + 1;
+  populateFormFromRule(rules[activeRuleIndex]);
+  renderRuleList();
+  updatePreview();
+  showToast(`Duplicated as "${clone.id}"`);
+}
+
+/** Returns an ID based on `baseId` that doesn't collide with existing rule IDs. */
+function _uniqueRuleId(baseId) {
+  const existing = new Set(rules.map(r => r.id).filter(Boolean));
+  // Strip any existing _copyN suffix so repeated duplicates don't chain
+  const root = baseId.replace(/_copy\d*$/, '');
+  let candidate = `${root}_copy`;
+  let n = 2;
+  while (existing.has(candidate)) {
+    candidate = `${root}_copy${n}`;
+    n++;
+  }
+  return candidate;
+}
+
 function renderRuleList() {
   const list = document.getElementById('rule-list');
   list.innerHTML = '';
   rules.forEach((rule, i) => {
     const item = h('div', {
       className: `rule-list-item${i === activeRuleIndex ? ' active' : ''}`,
-      onClick: (e) => { if (!e.target.closest('.rule-list-delete')) switchToRule(i); }
+      onClick: (e) => { if (!e.target.closest('.rule-list-action')) switchToRule(i); }
     },
       h('span', { className: 'rule-list-id' }, rule.id || `(untitled #${i + 1})`),
       h('span', { className: 'rule-list-scope' }, rule.sessionScope || 'global'),
-      h('button', { className: 'rule-list-delete', title: 'Delete rule',
+      h('button', { className: 'rule-list-action rule-list-duplicate', title: 'Duplicate rule',
+        onClick: (e) => { e.stopPropagation(); duplicateRule(i); } }, '\u29C9'),
+      h('button', { className: 'rule-list-action rule-list-delete', title: 'Delete rule',
         onClick: (e) => { e.stopPropagation(); deleteRule(i); } }, '\u00D7')
     );
     list.append(item);
@@ -1964,7 +1995,7 @@ function validateRule(jsonArray) {
     // Trigger ID vs data source warnings
     validateTriggerDataSource(rule.triggerExpression, warnings);
 
-    // Required fields on every SINGLE expression (blocks publish/copy/download)
+    // Required fields on every SINGLE expression (blocks publish)
     validateTriggerFields(rule.triggerExpression, errors, prefix);
 
     // Required conditions check
@@ -2276,11 +2307,6 @@ function highlightConditionFieldErrors(triggerRoot) {
 
 function copyJSON() {
   saveActiveRule();
-  const results = validateRule(rules);
-  if (!results.valid) {
-    showToast('Fix validation errors before copying');
-    return;
-  }
   const jsonStr = JSON.stringify(rules, null, 2);
   navigator.clipboard.writeText(jsonStr).then(() => {
     showToast('JSON copied to clipboard!');
@@ -2298,11 +2324,6 @@ function copyJSON() {
 
 function downloadJSON() {
   saveActiveRule();
-  const results = validateRule(rules);
-  if (!results.valid) {
-    showToast('Fix validation errors before downloading');
-    return;
-  }
   const jsonStr = JSON.stringify(rules, null, 2);
   const filename = rules.length === 1 ? (rules[0].id || 'rule') + '.json' : 'rules.json';
   const blob = new Blob([jsonStr], { type: 'application/json' });
