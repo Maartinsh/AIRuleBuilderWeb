@@ -129,7 +129,43 @@
           "description": "Time period for API data retrieval. Default 1. Only for DRIVER_MEASUREMENTS_SCORE, TRIP_EVENTS, TRIP_DETAILS."
         }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "description": "Wellness triggers: restrict condition parameters and extractable keys to the fields actually emitted in wellness_measurement_taken attrs (see WellnessRepositoryImpl in FleetDrive-Android).",
+          "if": {
+            "properties": { "dataSource": { "const": "Wellness" } },
+            "required": ["dataSource"]
+          },
+          "then": {
+            "properties": {
+              "conditions": {
+                "type": "array",
+                "items": {
+                  "oneOf": [
+                    { "$ref": "#/definitions/wellnessValueCondition" },
+                    { "$ref": "#/definitions/timeRangeCondition" },
+                    { "$ref": "#/definitions/timeCondition" },
+                    { "$ref": "#/definitions/comparisonCondition" },
+                    { "$ref": "#/definitions/eventCountCondition" },
+                    { "$ref": "#/definitions/relativeTimeWindowCondition" }
+                  ]
+                }
+              },
+              "extractedParameters": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "stressIndex", "normalizedStressIndex", "wellnessIndex", "wellnessLevel",
+                    "hemoglobin", "oxygenSaturation", "rmssd", "sdnn", "measurementTimestamp"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ]
     },
 
     "groupTrigger": {
@@ -213,6 +249,87 @@
         }
       },
       "additionalProperties": false
+    },
+
+    "wellnessValueCondition": {
+      "type": "object",
+      "description": "Stricter valueCondition for Wellness triggers. `parameter` is restricted to the 9 keys actually emitted in wellness_measurement_taken attrs. `wellnessLevel` values are constrained to the BioSense WellnessLevel enum. Numeric-typed parameters require numeric values.",
+      "required": ["type", "parameter", "operator", "value"],
+      "properties": {
+        "type": { "type": "string", "const": "Value" },
+        "parameter": {
+          "type": "string",
+          "enum": [
+            "stressIndex", "normalizedStressIndex", "wellnessIndex", "wellnessLevel",
+            "hemoglobin", "oxygenSaturation", "rmssd", "sdnn", "measurementTimestamp"
+          ]
+        },
+        "operator": { "$ref": "#/definitions/operator" },
+        "value": {
+          "description": "Comparison value. Narrowed per-parameter by the allOf rules below.",
+          "oneOf": [
+            { "type": "string", "minLength": 1 },
+            { "type": "number" },
+            { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1 }
+          ]
+        },
+        "source": {
+          "type": "string",
+          "description": "Optional source identifier."
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "description": "wellnessLevel must match the BioSense enum (UNKNOWN / LOW / MEDIUM / HIGH).",
+          "if": {
+            "properties": { "parameter": { "const": "wellnessLevel" } },
+            "required": ["parameter"]
+          },
+          "then": {
+            "properties": {
+              "value": {
+                "oneOf": [
+                  { "type": "string", "enum": ["UNKNOWN", "LOW", "MEDIUM", "HIGH"] },
+                  {
+                    "type": "array",
+                    "items": { "type": "string", "enum": ["UNKNOWN", "LOW", "MEDIUM", "HIGH"] },
+                    "minItems": 1
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "description": "Numeric wellness fields (int / double) require a numeric value. `in` still accepts a non-empty string array per the generic operator rules.",
+          "if": {
+            "properties": {
+              "parameter": {
+                "enum": [
+                  "stressIndex", "normalizedStressIndex", "wellnessIndex", "hemoglobin",
+                  "oxygenSaturation", "rmssd", "sdnn", "measurementTimestamp"
+                ]
+              }
+            },
+            "required": ["parameter"]
+          },
+          "then": {
+            "properties": {
+              "value": {
+                "oneOf": [
+                  { "type": "number" },
+                  {
+                    "type": "array",
+                    "items": { "type": "string", "minLength": 1 },
+                    "minItems": 1
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
     },
 
     "timeRangeCondition": {

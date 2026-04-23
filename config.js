@@ -86,10 +86,25 @@ const PARAMETERS = {
   POI: ['poi_id', 'poi_name'],
   DateTime: ['hour', 'day_of_week'],
   Phone: ['hour', 'day_of_week', 'battery_level', 'is_charging'],
+  // Mirrors the keys actually present in wellness_measurement_taken event attrs
+  // (see WellnessRepositoryImpl in FleetDrive-Android). `stressCategory` and
+  // `hoursAgo` exist in the engine schema but aren't populated anywhere, so rules
+  // using them would never fire — they're excluded here.
+  //
+  // Typed entries: the condition builder uses `type` to pick the right value
+  // input (number for int/double, dropdown for enum). `wellnessLevel` values
+  // come from BioSense SDK's WellnessLevel enum.
   Wellness: [
-    'stressIndex', 'normalizedStressIndex', 'stressCategory', 'wellnessIndex',
-    'wellnessLevel', 'hemoglobin', 'oxygenSaturation', 'rmssd', 'sdnn',
-    'measurementTimestamp', 'hoursAgo'
+    { id: 'stressIndex', type: 'int', label: 'stress level (0-100)' },
+    { id: 'normalizedStressIndex', type: 'int', label: 'normalized stress (-10 to 10)' },
+    { id: 'wellnessIndex', type: 'int', label: 'wellness score (0-100)' },
+    { id: 'wellnessLevel', type: 'enum', label: 'wellness level',
+      values: ['UNKNOWN', 'LOW', 'MEDIUM', 'HIGH'] },
+    { id: 'hemoglobin', type: 'double', label: 'hemoglobin (g/dL)' },
+    { id: 'oxygenSaturation', type: 'int', label: 'SpO2 (0-100)' },
+    { id: 'rmssd', type: 'int', label: 'HRV RMSSD' },
+    { id: 'sdnn', type: 'int', label: 'HRV SDNN' },
+    { id: 'measurementTimestamp', type: 'int', label: 'measurement time (ms epoch)' }
   ],
   MZONE: [
     'count', 'pendingJobs', 'completedJobs', 'inProgressJobs', 'RouteState',
@@ -1156,17 +1171,19 @@ const EVENT_VARIABLE_PARAMS = {
     { id: 'battery_level', label: 'battery level (0-100)' },
     { id: 'is_charging', label: 'is charging (true/false)' },
   ],
+  // Mirrors the keys actually emitted with wellness_measurement_taken (see
+  // WellnessRepositoryImpl in FleetDrive-Android). `stressCategory` / `hoursAgo`
+  // are in the engine schema but aren't populated anywhere, so they're omitted.
   Wellness: [
     { id: 'stressIndex', label: 'stress level (0-100)' },
     { id: 'normalizedStressIndex', label: 'normalized stress (-10 to 10)' },
-    { id: 'stressCategory', label: 'stress category (LOW/NORMAL/HIGH)' },
     { id: 'wellnessIndex', label: 'wellness score (0-100)' },
     { id: 'wellnessLevel', label: 'wellness level label' },
     { id: 'hemoglobin', label: 'hemoglobin (g/dL)' },
     { id: 'oxygenSaturation', label: 'SpO2 percentage (0-100)' },
     { id: 'rmssd', label: 'HRV RMSSD indicator' },
     { id: 'sdnn', label: 'HRV SDNN indicator' },
-    { id: 'hoursAgo', label: 'hours since measurement' },
+    { id: 'measurementTimestamp', label: 'measurement time (ms)' },
   ]
 };
 

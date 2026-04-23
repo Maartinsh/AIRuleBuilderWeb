@@ -632,7 +632,13 @@ function updateParameterHints(triggerContainer, dataSource) {
   const datalists = triggerContainer.querySelectorAll('[data-param-hints]');
   for (const dl of datalists) {
     dl.innerHTML = '';
-    for (const p of params) dl.append(h('option', { value: p }));
+    for (const p of params) {
+      if (typeof p === 'string') {
+        dl.append(h('option', { value: p }));
+      } else {
+        dl.append(h('option', { value: p.id }, p.label || p.id));
+      }
+    }
   }
 }
 
@@ -708,10 +714,29 @@ function renderConditionFields(container, type, dataSource, data = null, trigger
       const paramList = h('datalist', { id: paramListId, dataset: { paramHints: '' } });
       for (const p of params) paramList.append(h('option', { value: p }));
 
-      const availableOps = triggerConfig?.validOperators || OPERATORS;
-      const opSelect = createSelect(availableOps, { onInput: 'onFormChange()' });
+      // Operator set is driven by the selected parameter's type when available
+      // (e.g. enum/string params don't support <, <=, >, >= — comparing levels
+      // numerically makes no sense). Falls back to the trigger-level config or
+      // the global default for untyped params.
+      function opsForParam(paramName) {
+        const fi = paramTypeMap[paramName];
+        if (fi?.type === 'enum') return STRING_OPERATORS;
+        if (fi && ['int', 'double'].includes(fi.type)) return NUMERIC_OPERATORS;
+        if (fi?.type === 'bool') return ['==', '!='];
+        return triggerConfig?.validOperators || OPERATORS;
+      }
+      const initialOps = opsForParam(paramInput.value);
+      const opSelect = createSelect(initialOps, { onInput: 'onFormChange()' });
       opSelect.dataset.field = 'operator';
-      if (data?.operator) opSelect.value = data.operator;
+      if (data?.operator && initialOps.includes(data.operator)) {
+        opSelect.value = data.operator;
+      }
+      function refreshOps() {
+        const ops = opsForParam(paramInput.value);
+        const previous = opSelect.value;
+        _updateSelectOptions(opSelect, ops);
+        opSelect.value = ops.includes(previous) ? previous : ops[0];
+      }
 
       const valueContainer = h('div', { className: 'form-row' });
       function renderValueInput(op) {
@@ -723,6 +748,7 @@ function renderConditionFields(container, type, dataSource, data = null, trigger
           ? ['int', 'double'].includes(fieldInfo.type)
           : false;
         const isBool = fieldInfo?.type === 'bool';
+        const isEnum = fieldInfo?.type === 'enum' && Array.isArray(fieldInfo.values);
         const typeHint = fieldInfo ? ` (${fieldInfo.label})` : '';
         const baseHint = triggerConfig?.valueHint || (isBool ? 'true or false' : isNumeric ? 'number' : 'value');
 
@@ -747,12 +773,42 @@ function renderConditionFields(container, type, dataSource, data = null, trigger
             chipsRow.append(chip);
           }
           valueContainer.append(h('label', {}, 'Days'), chipsRow, hiddenInput);
+        } else if (op === 'in' && isEnum) {
+          // Enum chip selector — same UX as day_of_week, values sourced from fieldInfo
+          const selected = new Set(data?.value && Array.isArray(data.value) ? data.value : []);
+          const hiddenInput = h('input', { type: 'hidden' });
+          hiddenInput.dataset.field = 'value';
+          hiddenInput.dataset.valueType = 'array';
+          hiddenInput.value = fieldInfo.values.filter(v => selected.has(v)).join(', ');
+
+          const chipsRow = h('div', { className: 'day-chips' });
+          for (const v of fieldInfo.values) {
+            const chip = h('span', { className: 'day-chip' + (selected.has(v) ? ' selected' : '') }, v);
+            chip.addEventListener('click', () => {
+              if (selected.has(v)) { selected.delete(v); chip.classList.remove('selected'); }
+              else { selected.add(v); chip.classList.add('selected'); }
+              hiddenInput.value = fieldInfo.values.filter(x => selected.has(x)).join(', ');
+              onFormChange();
+            });
+            chipsRow.append(chip);
+          }
+          valueContainer.append(h('label', {}, `Values${typeHint}`), chipsRow, hiddenInput);
         } else if (op === 'in') {
           const tagInput = h('input', { type: 'text', placeholder: 'Comma-separated values', onInput: 'onFormChange()' });
           tagInput.dataset.field = 'value';
           tagInput.dataset.valueType = 'array';
           if (data?.value && Array.isArray(data.value)) tagInput.value = data.value.join(', ');
           valueContainer.append(h('label', {}, 'Values (comma-separated)'), tagInput);
+        } else if (isEnum) {
+          // Equality / inequality against a fixed set of strings — use a <select>
+          const options = [{ value: '', label: '— select value —' }].concat(
+            fieldInfo.values.map(v => ({ value: v, label: v }))
+          );
+          const sel = createSelect(options, { onInput: 'onFormChange()' });
+          sel.dataset.field = 'value';
+          sel.dataset.valueType = 'string';
+          if (data?.value !== undefined && !Array.isArray(data.value)) sel.value = String(data.value);
+          valueContainer.append(h('label', {}, `Value${typeHint}`), sel);
         } else {
           const inputType = isNumeric ? 'number' : 'text';
           const valInput = h('input', { type: inputType, placeholder: baseHint, onInput: 'onFormChange()' });
@@ -763,8 +819,13 @@ function renderConditionFields(container, type, dataSource, data = null, trigger
           valueContainer.append(h('label', {}, label), valInput);
         }
       }
-      // Re-render value input when parameter changes (to update type hints)
-      paramInput.addEventListener('change', () => renderValueInput(opSelect.value));
+      // Re-render value input when parameter changes (to update type hints),
+      // and refresh the operator dropdown so the available ops match the new
+      // parameter's type (numeric vs enum/string vs bool).
+      paramInput.addEventListener('change', () => {
+        refreshOps();
+        renderValueInput(opSelect.value);
+      });
       opSelect.addEventListener('change', () => renderValueInput(opSelect.value));
       renderValueInput(opSelect.value);
 
