@@ -629,15 +629,15 @@ function renderPoiSubForm(container, data = null) {
  */
 function updateParameterHints(triggerContainer, dataSource) {
   const params = PARAMETERS[dataSource] || [];
+  const labelMap = {};
+  for (const v of (EVENT_VARIABLE_PARAMS[dataSource] || [])) labelMap[v.id] = v.label;
   const datalists = triggerContainer.querySelectorAll('[data-param-hints]');
   for (const dl of datalists) {
     dl.innerHTML = '';
     for (const p of params) {
-      if (typeof p === 'string') {
-        dl.append(h('option', { value: p }));
-      } else {
-        dl.append(h('option', { value: p.id }, p.label || p.id));
-      }
+      const id = typeof p === 'string' ? p : p.id;
+      const label = (typeof p === 'object' && p.label) || labelMap[id] || '';
+      dl.append(h('option', { value: id, label: label || id }, label));
     }
   }
 }
@@ -712,7 +712,12 @@ function renderConditionFields(container, type, dataSource, data = null, trigger
       paramInput.dataset.field = 'parameter';
 
       const paramList = h('datalist', { id: paramListId, dataset: { paramHints: '' } });
-      for (const p of params) paramList.append(h('option', { value: p }));
+      const _labelMap = {};
+      for (const v of (EVENT_VARIABLE_PARAMS[dataSource] || [])) _labelMap[v.id] = v.label;
+      for (const p of params) {
+        const lbl = paramTypeMap[p]?.label || _labelMap[p] || '';
+        paramList.append(h('option', { value: p, label: lbl || p }, lbl));
+      }
 
       // Operator set is driven by the selected parameter's type when available
       // (e.g. enum/string params don't support <, <=, >, >= — comparing levels

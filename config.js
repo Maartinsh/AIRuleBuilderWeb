@@ -95,16 +95,12 @@ const PARAMETERS = {
   // input (number for int/double, dropdown for enum). `wellnessLevel` values
   // come from BioSense SDK's WellnessLevel enum.
   Wellness: [
-    { id: 'stressIndex', type: 'int', label: 'stress level (0-100)' },
-    { id: 'normalizedStressIndex', type: 'int', label: 'normalized stress (-10 to 10)' },
-    { id: 'wellnessIndex', type: 'int', label: 'wellness score (0-100)' },
-    { id: 'wellnessLevel', type: 'enum', label: 'wellness level',
-      values: ['UNKNOWN', 'LOW', 'MEDIUM', 'HIGH'] },
-    { id: 'hemoglobin', type: 'double', label: 'hemoglobin (g/dL)' },
-    { id: 'oxygenSaturation', type: 'int', label: 'SpO2 (0-100)' },
-    { id: 'rmssd', type: 'int', label: 'HRV RMSSD' },
-    { id: 'sdnn', type: 'int', label: 'HRV SDNN' },
-    { id: 'measurementTimestamp', type: 'int', label: 'measurement time (ms epoch)' }
+    { id: 'stressIndex', type: 'int', label: 'Stress Level (stressIndex)' },
+    { id: 'normalizedStressIndex', type: 'int', label: 'Normalized Stress Index (normalizedStressIndex)' },
+    { id: 'wellnessIndex', type: 'int', label: 'Wellness Score (wellnessIndex)' },
+    { id: 'hemoglobin', type: 'double', label: 'Hemoglobin (hemoglobin)' },
+    { id: 'oxygenSaturation', type: 'int', label: 'Oxygen Saturation (oxygenSaturation)' },
+    { id: 'sdnn', type: 'int', label: 'Sdnn (sdnn)' },
   ],
   MZONE: [
     'count', 'pendingJobs', 'completedJobs', 'inProgressJobs', 'RouteState',
@@ -1175,15 +1171,12 @@ const EVENT_VARIABLE_PARAMS = {
   // WellnessRepositoryImpl in FleetDrive-Android). `stressCategory` / `hoursAgo`
   // are in the engine schema but aren't populated anywhere, so they're omitted.
   Wellness: [
-    { id: 'stressIndex', label: 'stress level (0-100)' },
-    { id: 'normalizedStressIndex', label: 'normalized stress (-10 to 10)' },
-    { id: 'wellnessIndex', label: 'wellness score (0-100)' },
-    { id: 'wellnessLevel', label: 'wellness level label' },
-    { id: 'hemoglobin', label: 'hemoglobin (g/dL)' },
-    { id: 'oxygenSaturation', label: 'SpO2 percentage (0-100)' },
-    { id: 'rmssd', label: 'HRV RMSSD indicator' },
-    { id: 'sdnn', label: 'HRV SDNN indicator' },
-    { id: 'measurementTimestamp', label: 'measurement time (ms)' },
+    { id: 'stressIndex', label: 'Stress Level (stressIndex)' },
+    { id: 'normalizedStressIndex', label: 'Normalized Stress Index (normalizedStressIndex)' },
+    { id: 'wellnessIndex', label: 'Wellness Score (wellnessIndex)' },
+    { id: 'hemoglobin', label: 'Hemoglobin (hemoglobin)' },
+    { id: 'oxygenSaturation', label: 'Oxygen Saturation (oxygenSaturation)' },
+    { id: 'sdnn', label: 'Sdnn (sdnn)' },
   ]
 };
 
