@@ -109,11 +109,11 @@ const PARAMETERS = {
       // shown as "Stress Level" on the measurement screen.
       thresholds: [] },
     { id: 'normalizedStressIndex', type: 'int', label: 'Stress Level (normalizedStressIndex)',
-      min: 1, max: 10, unit: '',
+      min: 0, max: 30, unit: '',
       thresholds: [
-        { label: 'Normal',  range: [1, 3] },
+        { label: 'Normal',  range: [0, 3] },
         { label: 'High',    range: [4, 5] },
-        { label: 'Extreme', range: [6, 10] },
+        { label: 'Extreme', range: [6, 30] },
       ] },
     { id: 'wellnessIndex', type: 'int', label: 'Wellness Score (wellnessIndex)',
       min: 0, max: 100, unit: '',
