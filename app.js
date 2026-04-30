@@ -819,9 +819,34 @@ function renderConditionFields(container, type, dataSource, data = null, trigger
           const valInput = h('input', { type: inputType, placeholder: baseHint, onInput: 'onFormChange()' });
           valInput.dataset.field = 'value';
           valInput.dataset.valueType = isNumeric ? 'auto' : isBool ? 'bool' : 'auto';
+          if (isNumeric && fieldInfo?.min !== undefined) valInput.min = String(fieldInfo.min);
+          if (isNumeric && fieldInfo?.max !== undefined) valInput.max = String(fieldInfo.max);
           if (data?.value !== undefined && !Array.isArray(data.value)) valInput.value = String(data.value);
-          const label = fieldInfo ? `Value${typeHint}` : 'Value';
+          const unitSuffix = isNumeric && fieldInfo?.unit ? ` (${fieldInfo.unit})` : '';
+          const label = fieldInfo ? `Value${typeHint}${unitSuffix}` : 'Value';
           valueContainer.append(h('label', {}, label), valInput);
+
+          // Threshold legend + quick-pick chips. Ranges mirror the mobile
+          // measurement screen's Low/Normal/High labels so rule writers can
+          // pick "Extreme" instead of guessing a number.
+          if (isNumeric && Array.isArray(fieldInfo?.thresholds) && fieldInfo.thresholds.length > 0) {
+            const fmt = (n) => Number.isInteger(n) ? String(n) : n.toFixed(1);
+            const legend = fieldInfo.thresholds
+              .map(t => `${t.label}: ${fmt(t.range[0])}–${fmt(t.range[1])}`)
+              .join(' · ');
+            valueContainer.append(h('div', { className: 'threshold-legend' }, legend));
+
+            const chipsRow = h('div', { className: 'day-chips threshold-chips' });
+            for (const t of fieldInfo.thresholds) {
+              const chip = h('span', { className: 'day-chip', title: `Sets value to ${fmt(t.range[0])} (start of ${t.label} range)` }, t.label);
+              chip.addEventListener('click', () => {
+                valInput.value = String(t.range[0]);
+                onFormChange();
+              });
+              chipsRow.append(chip);
+            }
+            valueContainer.append(chipsRow);
+          }
         }
       }
       // Re-render value input when parameter changes (to update type hints),

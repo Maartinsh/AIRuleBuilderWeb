@@ -94,13 +94,58 @@ const PARAMETERS = {
   // Typed entries: the condition builder uses `type` to pick the right value
   // input (number for int/double, dropdown for enum). `wellnessLevel` values
   // come from BioSense SDK's WellnessLevel enum.
+  //
+  // `min`/`max`/`unit`/`thresholds` mirror the bucketization in
+  // FleetDrive-Android's MeasurementDetailsMapper.kt — keep them in sync if
+  // those thresholds change. Threshold ranges are inclusive on both ends and
+  // ordered low → high; the rule builder UI uses them to render a legend and
+  // quick-pick chips so rule writers know which numeric value corresponds to
+  // the Low/Normal/High/Extreme labels shown on the mobile measurement screen.
   Wellness: [
-    { id: 'stressIndex', type: 'int', label: 'Stress Level (stressIndex)' },
-    { id: 'normalizedStressIndex', type: 'int', label: 'Normalized Stress Index (normalizedStressIndex)' },
-    { id: 'wellnessIndex', type: 'int', label: 'Wellness Score (wellnessIndex)' },
-    { id: 'hemoglobin', type: 'double', label: 'Hemoglobin (hemoglobin)' },
-    { id: 'oxygenSaturation', type: 'int', label: 'Oxygen Saturation (oxygenSaturation)' },
-    { id: 'sdnn', type: 'int', label: 'Sdnn (sdnn)' },
+    { id: 'stressIndex', type: 'int', label: 'Stress Index — raw Baevsky (stressIndex)',
+      min: 0, max: 200, unit: '',
+      // Raw BioSense value; mobile screen does not surface a Low/High label
+      // for this field — see normalizedStressIndex below for the 5-level scale
+      // shown as "Stress Level" on the measurement screen.
+      thresholds: [] },
+    { id: 'normalizedStressIndex', type: 'int', label: 'Stress Level (normalizedStressIndex)',
+      min: 1, max: 10, unit: '',
+      thresholds: [
+        { label: 'Normal',  range: [1, 3] },
+        { label: 'High',    range: [4, 5] },
+        { label: 'Extreme', range: [6, 10] },
+      ] },
+    { id: 'wellnessIndex', type: 'int', label: 'Wellness Score (wellnessIndex)',
+      min: 0, max: 100, unit: '',
+      thresholds: [
+        { label: 'Very Low',      range: [0,  39]  },
+        { label: 'Low',           range: [40, 69]  },
+        { label: 'Below Average', range: [70, 79]  },
+        { label: 'Normal',        range: [80, 89]  },
+        { label: 'High',          range: [90, 100] },
+      ] },
+    { id: 'hemoglobin', type: 'double', label: 'Hemoglobin (hemoglobin)',
+      min: 0, max: 30, unit: 'g/dL',
+      thresholds: [
+        { label: 'Low',    range: [0,    12.9] },
+        { label: 'Normal', range: [13.0, 17.0] },
+        { label: 'High',   range: [17.1, 24.0] },
+      ] },
+    { id: 'oxygenSaturation', type: 'int', label: 'Oxygen Saturation (oxygenSaturation)',
+      min: 0, max: 100, unit: '%',
+      thresholds: [
+        { label: 'Very Low', range: [0,  89]  },
+        { label: 'Low',      range: [90, 94]  },
+        { label: 'Normal',   range: [95, 100] },
+      ] },
+    { id: 'sdnn', type: 'int', label: 'HRV — SDNN (sdnn)',
+      min: 0, max: 1000, unit: 'ms',
+      thresholds: [
+        { label: 'Very Low', range: [0,   19]  },
+        { label: 'Low',      range: [20,  49]  },
+        { label: 'Normal',   range: [50,  150] },
+        { label: 'High',     range: [151, 200] },
+      ] },
   ],
   MZONE: [
     'count', 'pendingJobs', 'completedJobs', 'inProgressJobs', 'RouteState',
