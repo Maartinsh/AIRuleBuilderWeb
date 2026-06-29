@@ -377,8 +377,8 @@ function renderSingleTrigger(container, depth, data = null) {
         sel.dataset.field = 'triggerId';
         sel.append(h('option', { value: '' }, '\u2014 Select trigger ID \u2014'));
         for (const id of ids) {
-          const isTripOnly = scope !== 'trip' && TRIP_ONLY_EVENTS.includes(id);
-          const opt = h('option', { value: id }, isTripOnly ? `${id} (trip scope only)` : id);
+          const isTripOnly = scope !== 'activity' && ACTIVITY_ONLY_EVENTS.includes(id);
+          const opt = h('option', { value: id }, isTripOnly ? `${id} (activity scope only)` : id);
           if (isTripOnly) opt.disabled = true;
           sel.append(opt);
         }
@@ -689,7 +689,10 @@ function addCondition(list, dataSource, data = null, triggerConfig = null, filte
  */
 function renderConditionFields(container, type, dataSource, data = null, triggerConfig = null, filterFieldsOverride = null) {
   container.innerHTML = '';
-  const rawParams = filterFieldsOverride || PARAMETERS[dataSource] || [];
+  // Per-trigger validParameters (e.g. Google Places vs Weather under "External
+  // Source") take priority over the flat per-dataSource list so the two engine
+  // APIs never offer each other's fields.
+  const rawParams = filterFieldsOverride || triggerConfig?.validParameters || PARAMETERS[dataSource] || [];
   // filterFieldsOverride items are {id, type, label} objects; PARAMETERS items are plain strings
   const params = rawParams.map(p => typeof p === 'string' ? p : p.id);
   const paramTypeMap = {};
@@ -726,6 +729,7 @@ function renderConditionFields(container, type, dataSource, data = null, trigger
       function opsForParam(paramName) {
         const fi = paramTypeMap[paramName];
         if (fi?.type === 'enum') return STRING_OPERATORS;
+        if (fi?.type === 'string') return STRING_OPERATORS;
         if (fi && ['int', 'double'].includes(fi.type)) return NUMERIC_OPERATORS;
         if (fi?.type === 'bool') return ['==', '!='];
         return triggerConfig?.validOperators || OPERATORS;
@@ -1457,13 +1461,13 @@ function _updateVariableVisibility() {
    SCOPE WARNING SYSTEM
    Checks for incompatibilities between rule scope and
    variable data sources or trigger events.
-   Scope hierarchy: trip < daily < global
+   Scope hierarchy: activity < daily < global
    Trip can access all data; daily/global cannot access trip data.
    ========================================================= */
 
 /**
  * Checks all variable cards and trigger cards for scope incompatibilities.
- * Shows inline warnings when trip-scoped data is used in daily/global rules.
+ * Shows inline warnings when activity-scoped data is used in daily/global rules.
  */
 function checkScopeWarnings() {
   const scope = val('rule-scope') || 'global';
@@ -1478,10 +1482,10 @@ function checkScopeWarnings() {
     if (!ds) continue;
 
     const req = VARIABLE_SCOPE[ds];
-    if (req === 'trip' && scope !== 'trip') {
+    if (req === 'activity' && scope !== 'activity') {
       const warn = h('div', { className: 'scope-warning' },
-        `${ds} data is trip-scoped \u2014 the buffer is cleared when the trip ends. ` +
-        `This variable won\u2019t have data in \u201C${scope}\u201D scope. Consider using \u201Ctrip\u201D scope for this rule.`
+        `${ds} data is activity-scoped \u2014 the buffer is cleared when the activity ends. ` +
+        `This variable won\u2019t have data in \u201C${scope}\u201D scope. Consider using \u201Cactivity\u201D scope for this rule.`
       );
       card.append(warn);
     }
@@ -1511,10 +1515,10 @@ function _checkTriggerScopeWarnings(container, scope) {
       if (!triggerContainer) continue;
 
       const tid = triggerContainer.querySelector('[data-field="triggerId"]')?.value || '';
-      if (tid && TRIP_ONLY_EVENTS.includes(tid) && scope !== 'trip') {
+      if (tid && ACTIVITY_ONLY_EVENTS.includes(tid) && scope !== 'activity') {
         const warn = h('div', { className: 'scope-warning' },
-          `\u201C${tid}\u201D is a trip-only event \u2014 it won\u2019t fire in \u201C${scope}\u201D scope. ` +
-          `Use \u201Ctrip\u201D scope for rules with this trigger.`
+          `\u201C${tid}\u201D is an activity-only event \u2014 it won\u2019t fire in \u201C${scope}\u201D scope. ` +
+          `Use \u201Cactivity\u201D scope for rules with this trigger.`
         );
         card.append(warn);
       }
@@ -2074,11 +2078,11 @@ function validateRule(jsonArray) {
 
     // Scope-event warnings
     const scope = rule.sessionScope || 'global';
-    if (scope !== 'trip') {
+    if (scope !== 'activity') {
       const triggerIds = collectTriggerIds(rule.triggerExpression);
       for (const tid of triggerIds) {
-        if (TRIP_ONLY_EVENTS.includes(tid)) {
-          warnings.push(`${prefix}"${tid}" only fires in trip scope, but rule scope is "${scope}"`);
+        if (ACTIVITY_ONLY_EVENTS.includes(tid)) {
+          warnings.push(`${prefix}"${tid}" only fires in the activity scope, but rule scope is "${scope}"`);
         }
       }
     }
@@ -2164,8 +2168,8 @@ function validateNoConditions(expr, errors, prefix) {
 // Parameters that must always be strings — a numeric value is always wrong for these.
 const _STRING_ONLY_PARAMS = new Set([
   'poi_name', 'poi_id', 'day_of_week', 'RouteState', 'status',
-  'driving_conditions', 'closestFuelStation', 'closestPlaceName',
-  'closestPlaceAddress'
+  'driving_conditions', 'condition', 'closestPlaceName',
+  'closestPlaceAddress', 'closestPlaceBusinessStatus'
 ]);
 
 function validateConditionFields(expr, errors, prefix) {
@@ -2931,7 +2935,7 @@ async function confirmDeleteVersion(versionId, name) {
 /**
  * Rebuilds all trigger ID dropdowns in the current rule form using the
  * current rule scope. Called whenever the scope selector changes so that
- * trip-only events are immediately removed (or restored) without the user
+ * activity-only events are immediately removed (or restored) without the user
  * having to touch each trigger card manually.
  */
 function refreshScopedTriggerIds() {

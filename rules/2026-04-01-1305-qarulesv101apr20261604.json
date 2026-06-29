@@ -10,7 +10,7 @@
   "rules": [
     {
       "id": "QA FleetDrive Rule: trigger the message if a driver is using the phone while driving",
-      "sessionScope": "trip",
+      "sessionScope": "activity",
       "priority": 9,
       "throttle": {
         "cooldownMinutes": 1,
@@ -36,7 +36,7 @@
     },
     {
       "id": "QA FleetDrive Rule: please take a break after driving more than 4 hours in a row",
-      "sessionScope": "trip",
+      "sessionScope": "activity",
       "priority": 8,
       "throttle": {
         "cooldownMinutes": 1,
@@ -79,7 +79,7 @@
     },
     {
       "id": "QA FleetDrive Rule to welcome a driver",
-      "sessionScope": "trip",
+      "sessionScope": "activity",
       "priority": 7,
       "throttle": {
         "cooldownMinutes": 5,
@@ -112,7 +112,7 @@
     {
       "id": "QA FleetDrive Rule: trigger the message if the driving speed is higher than 20 km/h",
       "description": "QA FleetDrive Rule: trigger the message if the driving speed is higher than 20 km/h",
-      "sessionScope": "trip",
+      "sessionScope": "activity",
       "priority": 10,
       "throttle": {
         "cooldownMinutes": 1,
@@ -158,7 +158,7 @@
     {
       "id": "QA FleetDrive Rule to say greetings on trip end",
       "description": "QA FleetDrive Rule to say greetings on trip end",
-      "sessionScope": "trip",
+      "sessionScope": "activity",
       "priority": 10,
       "throttle": {
         "cooldownMinutes": 1,
@@ -176,7 +176,7 @@
     },
     {
       "id": "QA FleetDrive Rule POI Id to say hello on POI entry",
-      "sessionScope": "trip",
+      "sessionScope": "activity",
       "priority": 7,
       "throttle": {
         "cooldownMinutes": 1,
@@ -209,7 +209,7 @@
     },
     {
       "id": "QA FleetDrive Rule POI Id to say goodbye on POI exit",
-      "sessionScope": "trip",
+      "sessionScope": "activity",
       "priority": 7,
       "throttle": {
         "cooldownMinutes": 1,
@@ -243,7 +243,7 @@
     {
       "id": "QA FleetDrive Rule POI Spice Entry",
       "description": "Rule to test POI",
-      "sessionScope": "trip",
+      "sessionScope": "activity",
       "priority": 7,
       "throttle": {
         "cooldownMinutes": 3,
@@ -276,7 +276,7 @@
     },
     {
       "id": "QA FleetDrive Rule POI Spice Exit",
-      "sessionScope": "trip",
+      "sessionScope": "activity",
       "priority": 7,
       "throttle": {
         "cooldownMinutes": 1,

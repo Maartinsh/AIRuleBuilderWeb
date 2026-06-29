@@ -59,9 +59,9 @@
 
     "sessionScope": {
       "type": "string",
-      "enum": ["global", "daily", "trip"],
+      "enum": ["global", "daily", "activity"],
       "default": "global",
-      "description": "Session lifetime. global = app lifetime, daily = 24h reset, trip = until endTrip(). Case-insensitive in engine."
+      "description": "Session lifetime. global = app lifetime, daily = 24h reset, activity = until endActivityScope() (an activity is a trip in the fleet app, a workout in other domains). Case-insensitive in engine."
     },
 
     "throttle": {
@@ -439,8 +439,8 @@
 
     "operator": {
       "type": "string",
-      "enum": ["==", "!=", "<", "<=", ">", ">=", "in"],
-      "description": "Comparison operator. 'in' requires value to be an array of strings."
+      "enum": ["==", "!=", "<", "<=", ">", ">=", "in", "contains"],
+      "description": "Comparison operator. 'in' requires value to be an array of strings. 'contains' does a case-insensitive substring match on string values (e.g. \"circle\" matches \"Circle K\"); for list-valued fields it matches if any element contains the substring."
     },
 
     "timePeriod": {

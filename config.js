@@ -45,7 +45,7 @@ const TRIGGER_IDS = {
     'mhub_excess_rpm_started', 'mhub_excess_rpm_ended',
     'mhub_excess_idle_started', 'mhub_excess_idle_ended',
     'mhub_canbus_connected', 'mhub_canbus_disconnected',
-    // Variable stream events — 1s polling, trip-scoped
+    // Variable stream events — 1s polling, activity-scoped
     'mhub_speed', 'mhub_rpm', 'mhub_fuel_level',
     'mhub_coolant_temp', 'mhub_ambient_temp', 'mhub_voltage',
     'mhub_trip_distance', 'mhub_trip_duration', 'mhub_trip_max_speed',
@@ -74,6 +74,30 @@ const TRIGGER_IDS = {
 /* =========================================================
    PARAMETER HINTS — per data source (for condition autocomplete)
    ========================================================= */
+
+/**
+ * External Source condition parameters, split by the underlying engine API.
+ * These MUST stay in sync with the engine's response schema:
+ *   - Google Places: ApiResponseParameters.GooglePlaces.ALL_PARAMETERS
+ *   - Weather:       ApiDataMapper.mapWeatherToEvent(...)
+ * They are attached per-trigger via TRIGGER_CONDITION_CONFIG[...].validParameters
+ * so a Google Places trigger never offers weather fields and vice-versa.
+ */
+const GOOGLE_PLACES_PARAMS = [
+  { id: 'placesFound', type: 'int', label: 'number of places found' },
+  { id: 'closestPlaceName', type: 'string', label: 'closest place name (use "contains" for brand match, e.g. "circle")' },
+  { id: 'closestPlaceAddress', type: 'string', label: 'closest place address' },
+  { id: 'closestPlaceRating', type: 'double', label: 'closest place rating' },
+  { id: 'closestPlaceBusinessStatus', type: 'string', label: 'closest place business status (e.g. OPERATIONAL)' }
+];
+
+const WEATHER_PARAMS = [
+  { id: 'driving_conditions', type: 'string', label: 'driving conditions (good/moderate/bad_driving_conditions)' },
+  { id: 'temperature', type: 'double', label: 'temperature' },
+  { id: 'condition', type: 'string', label: 'weather condition text' },
+  { id: 'visibility', type: 'double', label: 'visibility' },
+  { id: 'precipitation', type: 'double', label: 'precipitation' }
+];
 
 const PARAMETERS = {
   SmartDrive: ['speed', 'duration', 'distance', 'duration_millis'],
@@ -152,9 +176,15 @@ const PARAMETERS = {
     'score', 'status', 'hasProblematicJobs', 'hasDepotJobs'
   ],
   GZONE: ['position', 'leaderboardId'],
+  // NOTE: 'External Source' covers two different engine APIs (Google Places &
+  // Weather) whose response fields do NOT overlap. Per-trigger parameters are
+  // defined in TRIGGER_CONDITION_CONFIG[...].validParameters and take priority
+  // over this flat list. This list is only a fallback datalist and must contain
+  // ONLY parameters the engine actually emits (see ApiResponseParameters.kt) —
+  // do not add fields like the removed phantom 'closestFuelStation'.
   'External Source': [
-    'placesFound', 'closestFuelStation', 'closestPlaceName',
-    'closestPlaceAddress', 'closestPlaceRating', 'driving_conditions'
+    ...GOOGLE_PLACES_PARAMS,
+    ...WEATHER_PARAMS
   ]
 };
 
@@ -209,7 +239,7 @@ const DATA_SOURCES = [
 const OPERATORS = ['==', '!=', '<', '<=', '>', '>=', 'in'];
 const CONDITION_TYPES = ['Value', 'TimeRange', 'Time', 'Comparison', 'EventCount', 'RelativeTimeWindow'];
 const NUMERIC_OPERATORS = ['==', '!=', '<', '<=', '>', '>='];
-const STRING_OPERATORS = ['==', '!=', 'in'];
+const STRING_OPERATORS = ['==', '!=', 'in', 'contains'];
 const TIME_PERIODS = ['currentMonth', 'lastMonth', 'currentWeek', 'lastWeek'];
 
 /* =========================================================
@@ -228,6 +258,7 @@ function _googlePlacesConfig() {
     validConditionTypes: ['Value'],
     validOperators: NUMERIC_OPERATORS,
     valueHint: 'Min. places found (e.g. 1)',
+    validParameters: GOOGLE_PLACES_PARAMS,
     hideSource: true
   };
 }
@@ -693,6 +724,7 @@ const TRIGGER_CONDITION_CONFIG = {
     validConditionTypes: ['Value'],
     validOperators: OPERATORS,
     valueHint: 'Condition (e.g. rain, snow, clear)',
+    validParameters: WEATHER_PARAMS,
     hideSource: true
   },
   todays_weather_forecast: {
@@ -703,6 +735,7 @@ const TRIGGER_CONDITION_CONFIG = {
     validConditionTypes: ['Value'],
     validOperators: OPERATORS,
     valueHint: 'Condition (e.g. rain, snow, clear)',
+    validParameters: WEATHER_PARAMS,
     hideSource: true
   },
   forecast_for_upcoming_hour: {
@@ -713,6 +746,7 @@ const TRIGGER_CONDITION_CONFIG = {
     validConditionTypes: ['Value'],
     validOperators: OPERATORS,
     valueHint: 'Condition (e.g. rain, snow, clear)',
+    validParameters: WEATHER_PARAMS,
     hideSource: true
   },
   real_time_weather_updates: {
@@ -723,6 +757,7 @@ const TRIGGER_CONDITION_CONFIG = {
     validConditionTypes: ['Value'],
     validOperators: OPERATORS,
     valueHint: 'Condition (e.g. rain, snow, clear)',
+    validParameters: WEATHER_PARAMS,
     hideSource: true
   },
 
@@ -1276,22 +1311,22 @@ const EVENT_ONLY_TRIGGERS = new Set([
 const SCOPE_HINTS = {
   global: 'App lifetime — events retained forever (max 20K). Best for emergency, user commands.',
   daily: '24-hour scope — resets daily (max 10K). Best for greetings, summaries.',
-  trip: 'Trip scope — until endTrip() (max 12h/10K). Best for speed, fatigue, driving alerts.'
+  activity: 'Activity scope — until endActivityScope() (max 12h/10K). An activity is a trip in the fleet app. Best for speed, fatigue, driving alerts.'
 };
 
 /**
  * Variable scope requirements — minimum session scope needed for reliable data.
- * 'trip' = data only available in trip scope (buffer cleared on trip end)
+ * 'activity' = data only available in activity scope (buffer cleared on activity end)
  * 'any'  = data available in all scopes (API data, phone, wellness, POI events)
  */
 const VARIABLE_SCOPE = {
-  SmartDrive: 'trip',
+  SmartDrive: 'activity',
   BLE: 'any',
   POI: 'any',
   DateTime: 'any',
   Phone: 'any',
   Wellness: 'any',
-  MHub: 'trip',
+  MHub: 'activity',
   MZONE: 'any',
   GZONE: 'any',
   'External Source': 'any'
@@ -1309,8 +1344,8 @@ const _svc = `https://api.github.com/repos/${_ns}/${_rp}`;
 const _cdn = `https://raw.githubusercontent.com/${_ns}/${_rp}/${_br}`;
 const _idx = `${_cdn}/rules/manifest.json`;
 
-/** Events that only fire in trip scope. */
-const TRIP_ONLY_EVENTS = [
+/** Events that only fire in the activity scope. */
+const ACTIVITY_ONLY_EVENTS = [
   'trip_speed', 'trip_duration', 'trip_distance',
   'distracted_phone_use', 'distracted_phone_call_with_headset',
   'distracted_phone_call_without_headset',
@@ -1327,25 +1362,25 @@ const TRIP_ONLY_EVENTS = [
    ========================================================= */
 
 const TEMPLATES = [
-  { id: "speed_warning", description: "Warn when speed exceeds 120 km/h during trip.", sessionScope: "trip", priority: 9, throttle: { cooldownMinutes: 60, maxTriggersPerDay: 3 }, output: { tone: "calm and concerned", instructions: "Ask the driver to slow down, their speed is too high." }, triggerExpression: { type: "SINGLE", id: "trip_speed", dataSource: "SmartDrive", conditions: [{ type: "Value", parameter: "speed", operator: ">=", value: 120 }] } },
-  { id: "trip_start_greeting", description: "Greet driver by name when trip starts, mention today's jobs count.", sessionScope: "trip", priority: 7, throttle: { cooldownMinutes: 30, maxTriggersPerDay: 1 }, output: { tone: "friendly and warm", instructions: "Greet the driver by name and mention how many jobs they have today.", variables: [{ id: "firstname", dataSource: "MZONE" }, { id: "get_todays_jobs", dataSource: "MZONE" }] }, triggerExpression: { type: "SINGLE", id: "trip_started", dataSource: "SmartDrive" } },
-  { id: "night_fatigue_coffee", description: "Suggest coffee break when driving 2+ hours between 22:00-02:00 with coffee shop nearby.", sessionScope: "trip", priority: 8, throttle: { cooldownMinutes: 30, maxTriggersPerDay: 1 }, output: { tone: "calm and warm", instructions: "Suggest the driver takes a coffee break. They have been driving a long time at night and there is a coffee shop nearby.", variables: [{ id: "coffee_shop", dataSource: "External Source" }] }, triggerExpression: { type: "GROUP", groupType: "AND", expressions: [{ type: "SINGLE", id: "trip_started", dataSource: "SmartDrive" }, { type: "SINGLE", id: "trip_duration", dataSource: "SmartDrive", conditions: [{ type: "Value", parameter: "duration", operator: ">=", value: 120 }] }, { type: "SINGLE", id: "hour_changed", dataSource: "DateTime", conditions: [{ type: "TimeRange", from: "22:00", to: "02:00" }] }] } },
+  { id: "speed_warning", description: "Warn when speed exceeds 120 km/h during trip.", sessionScope: "activity", priority: 9, throttle: { cooldownMinutes: 60, maxTriggersPerDay: 3 }, output: { tone: "calm and concerned", instructions: "Ask the driver to slow down, their speed is too high." }, triggerExpression: { type: "SINGLE", id: "trip_speed", dataSource: "SmartDrive", conditions: [{ type: "Value", parameter: "speed", operator: ">=", value: 120 }] } },
+  { id: "trip_start_greeting", description: "Greet driver by name when trip starts, mention today's jobs count.", sessionScope: "activity", priority: 7, throttle: { cooldownMinutes: 30, maxTriggersPerDay: 1 }, output: { tone: "friendly and warm", instructions: "Greet the driver by name and mention how many jobs they have today.", variables: [{ id: "firstname", dataSource: "MZONE" }, { id: "get_todays_jobs", dataSource: "MZONE" }] }, triggerExpression: { type: "SINGLE", id: "trip_started", dataSource: "SmartDrive" } },
+  { id: "night_fatigue_coffee", description: "Suggest coffee break when driving 2+ hours between 22:00-02:00 with coffee shop nearby.", sessionScope: "activity", priority: 8, throttle: { cooldownMinutes: 30, maxTriggersPerDay: 1 }, output: { tone: "calm and warm", instructions: "Suggest the driver takes a coffee break. They have been driving a long time at night and there is a coffee shop nearby.", variables: [{ id: "coffee_shop", dataSource: "External Source" }] }, triggerExpression: { type: "GROUP", groupType: "AND", expressions: [{ type: "SINGLE", id: "trip_started", dataSource: "SmartDrive" }, { type: "SINGLE", id: "trip_duration", dataSource: "SmartDrive", conditions: [{ type: "Value", parameter: "duration", operator: ">=", value: 120 }] }, { type: "SINGLE", id: "hour_changed", dataSource: "DateTime", conditions: [{ type: "TimeRange", from: "22:00", to: "02:00" }] }] } },
   { id: "weekday_morning_greeting", description: "Greet driver at 9 AM on weekdays only.", sessionScope: "daily", priority: 7, throttle: { cooldownMinutes: 30, maxTriggersPerDay: 1 }, output: { tone: "energetic and friendly", instructions: "Wish the driver a good morning and a productive day ahead." }, triggerExpression: { type: "SINGLE", id: "hour_changed", dataSource: "Phone", conditions: [{ type: "Value", parameter: "hour", operator: "==", value: 9 }, { type: "Value", parameter: "day_of_week", operator: "in", value: ["MON", "TUE", "WED", "THU", "FRI"] }] } },
-  { id: "harsh_braking_alert", description: "Alert after 3+ harsh braking events in current trip.", sessionScope: "trip", priority: 8, throttle: { cooldownMinutes: 60, maxTriggersPerDay: 2 }, output: { tone: "calm and concerned", instructions: "Remind the driver to brake gently and maintain safe following distance." }, triggerExpression: { type: "SINGLE", id: "driving_behaviour_event_braking", dataSource: "SmartDrive", conditions: [{ type: "EventCount", eventName: "driving_behaviour_event_braking", operator: ">=", value: 3 }] } },
+  { id: "harsh_braking_alert", description: "Alert after 3+ harsh braking events in current trip.", sessionScope: "activity", priority: 8, throttle: { cooldownMinutes: 60, maxTriggersPerDay: 2 }, output: { tone: "calm and concerned", instructions: "Remind the driver to brake gently and maintain safe following distance." }, triggerExpression: { type: "SINGLE", id: "driving_behaviour_event_braking", dataSource: "SmartDrive", conditions: [{ type: "EventCount", eventName: "driving_behaviour_event_braking", operator: ">=", value: 3 }] } },
   { id: "high_stress_wellness", description: "Alert when driver stress is elevated from wellness measurement.", sessionScope: "daily", priority: 8, throttle: { cooldownMinutes: 60, maxTriggersPerDay: 3 }, output: { tone: "calm and caring", instructions: "The driver's stress level is elevated. Suggest a calming activity or break." }, triggerExpression: { type: "SINGLE", id: "wellness_measurement_taken", dataSource: "Wellness", conditions: [{ type: "Value", parameter: "normalizedStressIndex", operator: ">", value: 5 }] } },
   { id: "depot_departure_summary", description: "Summarize route when entering depot before 10 AM with pending jobs and route not yet completed.", sessionScope: "daily", priority: 7, throttle: { cooldownMinutes: 60, maxTriggersPerDay: 1 }, output: { tone: "professional and friendly", instructions: "Summarize the driver's route for today. They have arrived at the depot and their route is not yet completed.", variables: [{ id: "get_todays_jobs", dataSource: "MZONE" }] }, triggerExpression: { type: "GROUP", groupType: "AND", expressions: [{ type: "SINGLE", id: "poi_entry", dataSource: "POI", conditions: [{ type: "Value", parameter: "poi_type", operator: "==", value: "depot" }] }, { type: "SINGLE", id: "hour_changed", dataSource: "DateTime", conditions: [{ type: "Time", operator: "<=", value: "10:00" }] }, { type: "SINGLE", id: "get_todays_jobs", dataSource: "MZONE", conditions: [{ type: "Value", parameter: "RouteState", operator: "!=", value: "Completed" }] }] } },
   { id: "emergency_beacon", description: "Call dispatch and send API event when accident detected by beacon.", sessionScope: "global", priority: 10, throttle: { cooldownMinutes: 5, maxTriggersPerDay: 5 }, output: { tone: "calm and urgent", instructions: "Emergency detected. Ask if the driver is okay and inform them that dispatch is being contacted." }, actions: [{ type: "PhoneCall", number: { source: "static", value: "+31612345678" } }, { type: "APICall", id: "emergency_flow", dataSource: "MZONE" }], triggerExpression: { type: "SINGLE", id: "beacon_accident_detected", dataSource: "BLE" } },
-  { id: "mhub_fuel_low_alert", description: "Alert when MHub fuel level drops below 10%.", sessionScope: "trip", priority: 8, throttle: { cooldownMinutes: 30, maxTriggersPerDay: 3 }, output: { tone: "calm and informative", instructions: "The vehicle fuel level is critically low. Suggest the driver refuels soon." }, triggerExpression: { type: "SINGLE", id: "mhub_fuel_level", dataSource: "MHub", conditions: [{ type: "Value", parameter: "fuel_level", operator: "<=", value: 10 }] } },
+  { id: "mhub_fuel_low_alert", description: "Alert when MHub fuel level drops below 10%.", sessionScope: "activity", priority: 8, throttle: { cooldownMinutes: 30, maxTriggersPerDay: 3 }, output: { tone: "calm and informative", instructions: "The vehicle fuel level is critically low. Suggest the driver refuels soon." }, triggerExpression: { type: "SINGLE", id: "mhub_fuel_level", dataSource: "MHub", conditions: [{ type: "Value", parameter: "fuel_level", operator: "<=", value: 10 }] } },
   { id: "mhub_accident_response", description: "Emergency response when MHub detects an accident.", sessionScope: "global", priority: 10, throttle: { cooldownMinutes: 5, maxTriggersPerDay: 5 }, output: { tone: "calm and urgent", instructions: "An accident has been detected by the vehicle telematics. Ask the driver if they are okay and inform them that emergency services may be contacted." }, actions: [{ type: "PhoneCall", number: { source: "static", value: "+31612345678" } }], triggerExpression: { type: "SINGLE", id: "mhub_accident_detected", dataSource: "MHub" } },
-  { id: "mhub_overspeed_alert", description: "Alert when MHub reports vehicle speeding.", sessionScope: "trip", priority: 9, throttle: { cooldownMinutes: 15, maxTriggersPerDay: 5 }, output: { tone: "calm and firm", instructions: "The vehicle is speeding according to telematics data. Ask the driver to slow down and drive safely." }, triggerExpression: { type: "SINGLE", id: "mhub_speeding_started", dataSource: "MHub" } },
-  { id: "mhub_engine_overheat", description: "Alert when engine coolant temperature exceeds 105°C.", sessionScope: "trip", priority: 9, throttle: { cooldownMinutes: 10, maxTriggersPerDay: 5 }, output: { tone: "urgent and concerned", instructions: "The engine coolant temperature is dangerously high. Advise the driver to pull over safely and turn off the engine." }, triggerExpression: { type: "SINGLE", id: "mhub_coolant_temp", dataSource: "MHub", conditions: [{ type: "Value", parameter: "coolant_temp", operator: ">=", value: 105 }] } },
-  { id: "mhub_harsh_braking_alert", description: "Warn after 3+ harsh braking events detected by MHub.", sessionScope: "trip", priority: 8, throttle: { cooldownMinutes: 60, maxTriggersPerDay: 2 }, output: { tone: "calm and concerned", instructions: "The telematics device has detected multiple harsh braking events. Remind the driver to maintain safe following distances." }, triggerExpression: { type: "SINGLE", id: "mhub_harsh_braking", dataSource: "MHub", conditions: [{ type: "EventCount", eventName: "mhub_harsh_braking", operator: ">=", value: 3 }] } },
-  { id: "mhub_low_voltage_alert", description: "Alert when vehicle battery voltage drops below 11.5V.", sessionScope: "trip", priority: 7, throttle: { cooldownMinutes: 30, maxTriggersPerDay: 3 }, output: { tone: "calm and informative", instructions: "The vehicle battery voltage is low. This may indicate a charging issue. Suggest the driver reports this to the workshop." }, triggerExpression: { type: "SINGLE", id: "mhub_voltage", dataSource: "MHub", conditions: [{ type: "Value", parameter: "voltage", operator: "<", value: 11.5 }] } },
+  { id: "mhub_overspeed_alert", description: "Alert when MHub reports vehicle speeding.", sessionScope: "activity", priority: 9, throttle: { cooldownMinutes: 15, maxTriggersPerDay: 5 }, output: { tone: "calm and firm", instructions: "The vehicle is speeding according to telematics data. Ask the driver to slow down and drive safely." }, triggerExpression: { type: "SINGLE", id: "mhub_speeding_started", dataSource: "MHub" } },
+  { id: "mhub_engine_overheat", description: "Alert when engine coolant temperature exceeds 105°C.", sessionScope: "activity", priority: 9, throttle: { cooldownMinutes: 10, maxTriggersPerDay: 5 }, output: { tone: "urgent and concerned", instructions: "The engine coolant temperature is dangerously high. Advise the driver to pull over safely and turn off the engine." }, triggerExpression: { type: "SINGLE", id: "mhub_coolant_temp", dataSource: "MHub", conditions: [{ type: "Value", parameter: "coolant_temp", operator: ">=", value: 105 }] } },
+  { id: "mhub_harsh_braking_alert", description: "Warn after 3+ harsh braking events detected by MHub.", sessionScope: "activity", priority: 8, throttle: { cooldownMinutes: 60, maxTriggersPerDay: 2 }, output: { tone: "calm and concerned", instructions: "The telematics device has detected multiple harsh braking events. Remind the driver to maintain safe following distances." }, triggerExpression: { type: "SINGLE", id: "mhub_harsh_braking", dataSource: "MHub", conditions: [{ type: "EventCount", eventName: "mhub_harsh_braking", operator: ">=", value: 3 }] } },
+  { id: "mhub_low_voltage_alert", description: "Alert when vehicle battery voltage drops below 11.5V.", sessionScope: "activity", priority: 7, throttle: { cooldownMinutes: 30, maxTriggersPerDay: 3 }, output: { tone: "calm and informative", instructions: "The vehicle battery voltage is low. This may indicate a charging issue. Suggest the driver reports this to the workshop." }, triggerExpression: { type: "SINGLE", id: "mhub_voltage", dataSource: "MHub", conditions: [{ type: "Value", parameter: "voltage", operator: "<", value: 11.5 }] } },
   { id: "score_leaderboard_decline", description: "Motivate when monthly score and leaderboard position both dropped.", sessionScope: "global", priority: 7, throttle: { cooldownMinutes: 60, maxTriggersPerDay: 1 }, output: { tone: "motivational and encouraging", instructions: "The driver's score and leaderboard position have declined this month. Encourage them to improve their driving." }, triggerExpression: { type: "GROUP", groupType: "AND", expressions: [{ type: "SINGLE", id: "montly_score_decreased", dataSource: "MZONE", conditions: [{ type: "Comparison", parameter: "score", firstPeriod: "currentMonth", secondPeriod: "lastMonth", operator: "<", value: "0" }] }, { type: "SINGLE", id: "leaderboard_position_declined", dataSource: "GZONE", conditions: [{ type: "Comparison", parameter: "position", firstPeriod: "currentMonth", secondPeriod: "lastMonth", operator: ">", value: "0" }] }] } },
-  { id: "bad_weather_warning", description: "Inform about bad driving conditions from weather forecast during trip.", sessionScope: "trip", priority: 8, throttle: { cooldownMinutes: 60, maxTriggersPerDay: 3 }, output: { tone: "calm and informative", instructions: "Inform the driver about current weather conditions and suggest safe driving tips." }, triggerExpression: { type: "SINGLE", id: "weather_forecast", dataSource: "External Source", conditions: [{ type: "Value", parameter: "driving_conditions", operator: "==", value: "bad_driving_conditions" }] } },
-  { id: "job_arrival_poi", description: "Provide job details when entering a job destination POI.", sessionScope: "trip", priority: 8, throttle: { cooldownMinutes: 15, maxTriggersPerDay: 20 }, output: { tone: "professional and friendly", instructions: "Tell the driver they have arrived at their job destination and provide the job details.", variables: [{ id: "job_details", dataSource: "MZONE" }] }, triggerExpression: { type: "SINGLE", id: "job_destination_entry", dataSource: "POI" } },
+  { id: "bad_weather_warning", description: "Inform about bad driving conditions from weather forecast during trip.", sessionScope: "activity", priority: 8, throttle: { cooldownMinutes: 60, maxTriggersPerDay: 3 }, output: { tone: "calm and informative", instructions: "Inform the driver about current weather conditions and suggest safe driving tips." }, triggerExpression: { type: "SINGLE", id: "weather_forecast", dataSource: "External Source", conditions: [{ type: "Value", parameter: "driving_conditions", operator: "==", value: "bad_driving_conditions" }] } },
+  { id: "job_arrival_poi", description: "Provide job details when entering a job destination POI.", sessionScope: "activity", priority: 8, throttle: { cooldownMinutes: 15, maxTriggersPerDay: 20 }, output: { tone: "professional and friendly", instructions: "Tell the driver they have arrived at their job destination and provide the job details.", variables: [{ id: "job_details", dataSource: "MZONE" }] }, triggerExpression: { type: "SINGLE", id: "job_destination_entry", dataSource: "POI" } },
   { id: "upcoming_departure", description: "Remind driver about job departure within 1 hour.", sessionScope: "daily", priority: 7, throttle: { cooldownMinutes: 15, maxTriggersPerDay: 20 }, output: { tone: "helpful and friendly", instructions: "Remind the driver they have a job departure coming up soon.", variables: [{ id: "jobs", dataSource: "MZONE", triggerId: "get_todays_jobs", source: "jobs", fields: ["id", "description", "utcPlannedDeparture"] }] }, triggerExpression: { type: "SINGLE", id: "get_todays_jobs", dataSource: "MZONE", conditions: [{ type: "RelativeTimeWindow", parameter: "plannedDepartureDateTime", fromNow: "1h" }] } },
   { id: "weekly_performance", description: "Summarize weekly job activity after 11 AM on Tuesdays.", sessionScope: "daily", priority: 7, throttle: { cooldownMinutes: 30, maxTriggersPerDay: 1 }, output: { tone: "professional and encouraging", instructions: "Provide a weekly summary of the driver's jobs. Mention how many jobs they had and their statuses.", variables: [{ id: "jobs", dataSource: "MZONE", triggerId: "get_all_jobs", source: "jobs", fields: ["id", "description", "jobStatus_Id"] }] }, triggerExpression: { type: "GROUP", groupType: "AND", expressions: [{ type: "SINGLE", id: "get_all_jobs", dataSource: "MZONE", conditions: [{ type: "Value", parameter: "count", operator: ">=", value: 1 }] }, { type: "SINGLE", id: "hour_changed", dataSource: "Phone", conditions: [{ type: "Value", parameter: "hour", operator: ">=", value: 11 }, { type: "Value", parameter: "day_of_week", operator: "in", value: ["TUE"] }] }] } },
   { id: "urgent_jobs_filtered", description: "List pending high-priority jobs using filtered extraction.", sessionScope: "daily", priority: 8, throttle: { cooldownMinutes: 90, maxTriggersPerDay: 3 }, output: { tone: "professional and urgent", instructions: "List pending high-priority jobs requiring immediate attention.", variables: [{ id: "urgentJobs", dataSource: "MZONE", triggerId: "get_todays_jobs", source: "jobs", fields: ["id", "description", "priority"], filters: [{ type: "Value", parameter: "jobStatus_Id", operator: "==", value: 1 }, { type: "Value", parameter: "priority", operator: ">=", value: 2 }] }] }, triggerExpression: { type: "SINGLE", id: "get_todays_jobs", dataSource: "MZONE", conditions: [{ type: "Value", parameter: "count", operator: ">=", value: 1 }] } },
-  { id: "speed_or_long_duration", description: "Warn on speeding OR driving 3+ hours, only at night.", sessionScope: "trip", priority: 8, throttle: { cooldownMinutes: 30, maxTriggersPerDay: 1 }, output: { tone: "calm and concerned", instructions: "The driver is either speeding or has been driving too long at night. Suggest they slow down or take a break." }, triggerExpression: { type: "GROUP", groupType: "AND", expressions: [{ type: "SINGLE", id: "trip_started", dataSource: "SmartDrive" }, { type: "SINGLE", id: "hour_changed", dataSource: "DateTime", conditions: [{ type: "TimeRange", from: "22:00", to: "05:00" }] }, { type: "GROUP", groupType: "OR", expressions: [{ type: "SINGLE", id: "trip_speed", dataSource: "SmartDrive", conditions: [{ type: "Value", parameter: "speed", operator: ">=", value: 120 }] }, { type: "SINGLE", id: "trip_duration", dataSource: "SmartDrive", conditions: [{ type: "Value", parameter: "duration", operator: ">=", value: 180 }] }] }] } }
+  { id: "speed_or_long_duration", description: "Warn on speeding OR driving 3+ hours, only at night.", sessionScope: "activity", priority: 8, throttle: { cooldownMinutes: 30, maxTriggersPerDay: 1 }, output: { tone: "calm and concerned", instructions: "The driver is either speeding or has been driving too long at night. Suggest they slow down or take a break." }, triggerExpression: { type: "GROUP", groupType: "AND", expressions: [{ type: "SINGLE", id: "trip_started", dataSource: "SmartDrive" }, { type: "SINGLE", id: "hour_changed", dataSource: "DateTime", conditions: [{ type: "TimeRange", from: "22:00", to: "05:00" }] }, { type: "GROUP", groupType: "OR", expressions: [{ type: "SINGLE", id: "trip_speed", dataSource: "SmartDrive", conditions: [{ type: "Value", parameter: "speed", operator: ">=", value: 120 }] }, { type: "SINGLE", id: "trip_duration", dataSource: "SmartDrive", conditions: [{ type: "Value", parameter: "duration", operator: ">=", value: 180 }] }] }] } }
 ];
