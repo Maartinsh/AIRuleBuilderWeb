@@ -1311,8 +1311,21 @@ const EVENT_ONLY_TRIGGERS = new Set([
 const SCOPE_HINTS = {
   global: 'App lifetime — events retained forever (max 20K). Best for emergency, user commands.',
   daily: '24-hour scope — resets daily (max 10K). Best for greetings, summaries.',
-  activity: 'Activity scope — until endActivityScope() (max 12h/10K). An activity is a trip in the fleet app. Best for speed, fatigue, driving alerts.'
+  activity: 'Activity scope — until endActivityScope() (max 12h/10K). An activity is a trip in the fleet app. Best for speed, fatigue, driving alerts.',
+  trip: '⚠️ Deprecated — use "activity" instead. Kept for backwards compatibility; behaves identically to the activity scope and still emits "trip" in JSON.'
 };
+
+/**
+ * Scopes that behave like the activity scope. "trip" is the deprecated alias
+ * for "activity" — they share the same lifecycle and event availability, so
+ * activity-only events and warnings must treat them identically.
+ */
+const ACTIVITY_SCOPES = ['activity', 'trip'];
+
+/** True when the rule scope is the activity scope or its deprecated "trip" alias. */
+function isActivityScope(scope) {
+  return ACTIVITY_SCOPES.includes(scope);
+}
 
 /**
  * Variable scope requirements — minimum session scope needed for reliable data.

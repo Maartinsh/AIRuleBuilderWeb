@@ -377,7 +377,7 @@ function renderSingleTrigger(container, depth, data = null) {
         sel.dataset.field = 'triggerId';
         sel.append(h('option', { value: '' }, '\u2014 Select trigger ID \u2014'));
         for (const id of ids) {
-          const isTripOnly = scope !== 'activity' && ACTIVITY_ONLY_EVENTS.includes(id);
+          const isTripOnly = !isActivityScope(scope) && ACTIVITY_ONLY_EVENTS.includes(id);
           const opt = h('option', { value: id }, isTripOnly ? `${id} (activity scope only)` : id);
           if (isTripOnly) opt.disabled = true;
           sel.append(opt);
@@ -1482,7 +1482,7 @@ function checkScopeWarnings() {
     if (!ds) continue;
 
     const req = VARIABLE_SCOPE[ds];
-    if (req === 'activity' && scope !== 'activity') {
+    if (req === 'activity' && !isActivityScope(scope)) {
       const warn = h('div', { className: 'scope-warning' },
         `${ds} data is activity-scoped \u2014 the buffer is cleared when the activity ends. ` +
         `This variable won\u2019t have data in \u201C${scope}\u201D scope. Consider using \u201Cactivity\u201D scope for this rule.`
@@ -1515,7 +1515,7 @@ function _checkTriggerScopeWarnings(container, scope) {
       if (!triggerContainer) continue;
 
       const tid = triggerContainer.querySelector('[data-field="triggerId"]')?.value || '';
-      if (tid && ACTIVITY_ONLY_EVENTS.includes(tid) && scope !== 'activity') {
+      if (tid && ACTIVITY_ONLY_EVENTS.includes(tid) && !isActivityScope(scope)) {
         const warn = h('div', { className: 'scope-warning' },
           `\u201C${tid}\u201D is an activity-only event \u2014 it won\u2019t fire in \u201C${scope}\u201D scope. ` +
           `Use \u201Cactivity\u201D scope for rules with this trigger.`
@@ -2078,7 +2078,7 @@ function validateRule(jsonArray) {
 
     // Scope-event warnings
     const scope = rule.sessionScope || 'global';
-    if (scope !== 'activity') {
+    if (!isActivityScope(scope)) {
       const triggerIds = collectTriggerIds(rule.triggerExpression);
       for (const tid of triggerIds) {
         if (ACTIVITY_ONLY_EVENTS.includes(tid)) {
