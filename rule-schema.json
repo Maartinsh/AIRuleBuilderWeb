@@ -59,9 +59,9 @@
 
     "sessionScope": {
       "type": "string",
-      "enum": ["global", "daily", "activity", "trip"],
+      "enum": ["global", "daily", "activity"],
       "default": "global",
-      "description": "Session lifetime. global = app lifetime, daily = 24h reset, activity = until endActivityScope() (an activity is a trip in the fleet app, a workout in other domains). 'trip' is a deprecated alias for 'activity', kept for backwards compatibility. Case-insensitive in engine."
+      "description": "Session lifetime. global = app lifetime, daily = 24h reset, activity = until endActivityScope() (an activity is a trip in the fleet app, a workout in other domains). Case-insensitive in engine."
     },
 
     "throttle": {

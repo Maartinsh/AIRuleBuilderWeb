@@ -46,12 +46,14 @@ async function loadSchema() {
     return;
   }
 
-  // Load Ajv from CDN
+  // Load Ajv from CDN — the browser bundle lives in the ajv-dist package
+  // (the ajv package itself has no standalone build) and defines an `ajv7` global
   try {
-    if (typeof Ajv === 'undefined') {
-      await loadScript('https://cdn.jsdelivr.net/npm/ajv@8/dist/ajv7.min.js');
+    if (typeof Ajv === 'undefined' && typeof ajv7 === 'undefined') {
+      await loadScript('https://cdn.jsdelivr.net/npm/ajv-dist@8/dist/ajv7.min.js');
     }
-    ajvInstance = new Ajv({ allErrors: true, strict: false });
+    const AjvCtor = typeof Ajv !== 'undefined' ? Ajv : ajv7;
+    ajvInstance = new AjvCtor({ allErrors: true, strict: false });
     schemaValidator = ajvInstance.compile(schema);
   } catch (e) {
     console.warn('Could not load Ajv:', e.message);
@@ -1994,6 +1996,16 @@ function validateAndShow() {
 }
 
 /**
+ * Migrates legacy fields in an imported rule to their current equivalents.
+ * "trip" was the pre-rename name of the activity session scope; the engine
+ * no longer accepts it, so it is upgraded on import.
+ */
+function migrateRule(rule) {
+  if (rule && rule.sessionScope === 'trip') rule.sessionScope = 'activity';
+  return rule;
+}
+
+/**
  * Handles JSON file upload. Parses the file, validates it, then loads all
  * rules into the editor and shows validation results in the preview panel.
  */
@@ -2018,6 +2030,7 @@ function uploadJSON(input) {
       showToast('No rules found in uploaded file.', 4000);
       return;
     }
+    loaded.forEach(migrateRule);
 
     // Validate using the existing validation pipeline
     const results = validateRule(loaded);
@@ -2888,6 +2901,7 @@ async function loadVersion(versionId, label) {
     const data = JSON.parse(atob(file.content.replace(/\n/g, '')));
     const loaded = data.rules || (Array.isArray(data) ? data : null);
     if (!loaded || !loaded.length) throw new Error('No rules found in version');
+    loaded.forEach(migrateRule);
     rules = loaded.map(r => JSON.parse(JSON.stringify(r)));
     activeRuleIndex = 0;
     populateFormFromRule(rules[0]);
