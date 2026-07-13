@@ -2055,6 +2055,83 @@ function uploadJSON(input) {
   reader.readAsText(file);
 }
 
+function _resolveInstancePath(root, pointer) {
+  let node = root;
+  for (const part of pointer.split('/').slice(1)) {
+    if (node == null) return undefined;
+    node = node[part.replace(/~1/g, '/').replace(/~0/g, '~')];
+  }
+  return node;
+}
+
+/* Discriminated-union branch info derived from rule-schema.json: maps each
+   "type" const (SINGLE, GROUP, Value, TimeRange, ...) to the union of the
+   required/allowed properties of the definitions carrying that const. Built
+   lazily from the fetched schema so it stays in sync as the schema evolves. */
+let _branchTypeInfo = null;
+function _getBranchTypeInfo() {
+  if (!_branchTypeInfo && schema && schema.definitions) {
+    _branchTypeInfo = {};
+    for (const def of Object.values(schema.definitions)) {
+      const t = def && def.properties && def.properties.type && def.properties.type.const;
+      if (!t) continue;
+      const info = _branchTypeInfo[t] || (_branchTypeInfo[t] = { required: new Set(), props: new Set() });
+      (def.required || []).forEach(p => info.required.add(p));
+      Object.keys(def.properties).forEach(p => info.props.add(p));
+    }
+  }
+  return _branchTypeInfo || {};
+}
+
+/**
+ * Tames Ajv's anyOf/oneOf error explosion, where one real problem surfaces as
+ * an error per failed branch plus the combinator itself. Drops errors coming
+ * from discriminated branches the object's "type" doesn't select, folds
+ * either-or required-property alternatives into a single message, drops the
+ * bare combinator wrapper errors (they carry no info beyond their branch
+ * errors), and dedupes what remains.
+ */
+function _filterSchemaErrors(rawErrors, jsonArray) {
+  const branchInfo = _getBranchTypeInfo();
+  const out = [];
+  const eitherOr = new Map(); // instancePath + anyOf schema path -> folded required props
+  for (const err of rawErrors) {
+    if (err.keyword === 'anyOf' || err.keyword === 'oneOf') continue;
+
+    // Errors from oneOf branches the object's declared "type" doesn't select
+    const target = _resolveInstancePath(jsonArray, err.instancePath.replace(/\/type$/, ''));
+    const info = target && typeof target === 'object' && typeof target.type === 'string'
+      ? branchInfo[target.type] : undefined;
+    if (info) {
+      // The selected branch's own const passes, so a const failure on "type"
+      // can only come from a non-selected branch
+      if (err.keyword === 'const' && err.instancePath.endsWith('/type')) continue;
+      if (err.keyword === 'required' && !info.required.has(err.params.missingProperty)) continue;
+      if (err.keyword === 'additionalProperties' && info.props.has(err.params.additionalProperty)) continue;
+    }
+
+    const anyOfBase = (err.schemaPath.match(/^(.*\/anyOf)\/\d+\/required$/) || [])[1];
+    if (anyOfBase && err.keyword === 'required') {
+      const key = `${err.instancePath}|${anyOfBase}`;
+      if (!eitherOr.has(key)) eitherOr.set(key, { err, props: [] });
+      eitherOr.get(key).props.push(err.params.missingProperty);
+      continue;
+    }
+
+    out.push(err);
+  }
+  for (const { err, props } of eitherOr.values()) {
+    out.push({ ...err, message: `must have required property ${props.map(p => `'${p}'`).join(' or ')}` });
+  }
+  const seen = new Set();
+  return out.filter(err => {
+    const key = `${err.instancePath}|${err.message}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 /**
  * Validates rule JSON. Returns { valid, errors[], warnings[] }.
  */
@@ -2066,7 +2143,7 @@ function validateRule(jsonArray) {
   if (schemaValidator) {
     const valid = schemaValidator(jsonArray);
     if (!valid && schemaValidator.errors) {
-      for (const err of schemaValidator.errors) {
+      for (const err of _filterSchemaErrors(schemaValidator.errors, jsonArray)) {
         errors.push(`${err.instancePath || '/'}: ${err.message}`);
       }
     }
