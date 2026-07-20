@@ -14,6 +14,149 @@
 
 let rules = [];          // Array of rule JSON objects (source of truth)
 let activeRuleIndex = 0; // Currently-edited rule index
+let selectedProduct = DEFAULT_PRODUCT; // Narrows which data sources are offered
+
+/**
+ * The product that *exclusively* owns a data source, or null when the source is
+ * shared (DateTime, Phone, Wellness) or unknown. Only an exclusively-owned
+ * source pins a rule to a product — a rule built purely from shared sources is
+ * valid under either.
+ */
+function exclusiveOwner(source) {
+  const owners = PRODUCTS.filter(p => (PRODUCT_DATA_SOURCES[p.id] || []).includes(source));
+  return owners.length === 1 ? owners[0] : null;
+}
+
+/**
+ * Whether a trigger node represents an actual authoring decision.
+ *
+ * Every rendered trigger carries a `dataSource`, because a <select> always has
+ * something selected — an untouched trigger reports whichever source sorted
+ * first. Treating that placeholder as a choice makes a brand-new rule look like
+ * it belongs to whichever product owns the first source in the list, so a
+ * trigger only counts once it names an event or carries conditions.
+ */
+function isConfiguredTrigger(expr) {
+  if (!expr) return false;
+  if (Array.isArray(expr.expressions)) return expr.expressions.some(isConfiguredTrigger);
+  return !!(expr.id || expr.conditions?.length);
+}
+
+/** dataSources a rule actually commits to — placeholders excluded. */
+function collectDataSources(rule, out = new Set()) {
+  (function walk(expr) {
+    if (!expr) return;
+    if (Array.isArray(expr.expressions)) { expr.expressions.forEach(walk); return; }
+    if (expr.dataSource && isConfiguredTrigger(expr)) out.add(expr.dataSource);
+  })(rule?.triggerExpression);
+  for (const v of rule?.output?.variables || []) {
+    if (v.dataSource) out.add(v.dataSource);
+  }
+  return out;
+}
+
+/** Product ids a rule is pinned to. Empty = shared-only, valid under any product. */
+function ruleProductIds(rule) {
+  const ids = new Set();
+  for (const ds of collectDataSources(rule)) {
+    const owner = exclusiveOwner(ds);
+    if (owner) ids.add(owner.id);
+  }
+  return ids;
+}
+
+/** Has any authoring happened yet? Drives whether the product is still open. */
+function ruleIsStarted(rule) {
+  if (!rule) return false;
+  if (isConfiguredTrigger(rule.triggerExpression)) return true;
+  return !!(rule.output?.instructions || rule.output?.variables?.length);
+}
+
+/** A fresh, unconfigured rule — the state the editor opens in. */
+function blankRule() {
+  return { id: 'rule_1', sessionScope: 'global', triggerExpression: { type: 'GROUP', groupType: 'AND' } };
+}
+
+/** The product an imported set belongs to, or null if it uses only shared sources. */
+function inferProduct(list) {
+  for (const rule of list || []) {
+    const [first] = ruleProductIds(rule);
+    if (first) return first;
+  }
+  return null;
+}
+
+/**
+ * Adopts the product of a set that arrived from outside the editor (upload or
+ * published version), so the switch reflects the file rather than whatever was
+ * selected beforehand. A mixed file still fails validation; this just makes the
+ * switch agree with the majority of it instead of silently disagreeing.
+ */
+function adoptProductFromRules() {
+  selectedProduct = inferProduct(rules) || selectedProduct;
+  refreshTemplateOptions();
+  renderProductSwitch();
+}
+
+/**
+ * Data sources to offer for the selected product.
+ *
+ * The filter is a UI convenience, not a validation rule — the engine accepts any
+ * data source. Dropping an out-of-product value would silently rewrite a rule on
+ * import, so a `current` that belongs to another product is kept, but tagged so
+ * it never reads as something this product legitimately offers.
+ *
+ * `current` should only be passed for a trigger the author actually configured.
+ * An untouched trigger just holds whichever source sorted first, and carrying
+ * that across a product switch surfaces e.g. SmartDrive under Mojo for a rule
+ * nobody has edited yet.
+ */
+function productSources(list, current) {
+  const out = filterByProduct(list, selectedProduct).map(s => ({ value: s, label: s }));
+  if (current && !out.some(o => o.value === current)) {
+    const owner = exclusiveOwner(current);
+    out.push({ value: current, label: owner ? `${current} — ${owner.label} only` : current });
+  }
+  return out;
+}
+
+/**
+ * Switches product, starting the set over.
+ *
+ * A rule set ships as one file for one app, so the product is a property of the
+ * whole set rather than of any one rule. There is no meaningful translation of
+ * a Fleet rule into a Mojo one — the data sources have nothing in common — so
+ * switching replaces the set instead of trying to carry it across.
+ *
+ * Disabling the switch instead was worse: the editor always holds at least one
+ * rule and refuses to delete the last, so once that rule had content the choice
+ * could never be revisited without a reload.
+ */
+function onProductChange(product) {
+  if (product === selectedProduct) return true;
+
+  saveActiveRule();
+  if (rules.some(ruleIsStarted)) {
+    const label = (PRODUCTS.find(p => p.id === product) || {}).label || product;
+    const n = rules.length;
+    const ok = confirm(
+      `Switch to ${label}?\n\n` +
+      `Your ${n} rule${n === 1 ? '' : 's'} will be discarded. A rule set targets a single ` +
+      `product, and ${label} uses different data sources.\n\nThis cannot be undone.`
+    );
+    if (!ok) return false;
+  }
+
+  selectedProduct = product;
+  rules = [blankRule()];
+  activeRuleIndex = 0;
+  refreshTemplateOptions();
+  renderProductSwitch(); // here, not in the click handler, so programmatic callers repaint too
+  populateFormFromRule(rules[0]);
+  renderRuleList();
+  onFormChange();
+  return true;
+}
 
 /* =========================================================
    SCHEMA & VALIDATION
@@ -25,6 +168,8 @@ let schemaValidator = null;
 
 const _TIME_RE = /^\d{1,2}:\d{2}$/;
 const _FROM_NOW_RE = /^[+-]?\d+[hdm]$/;
+// Aggregate windows look backwards and must be positive, so no sign and no zero.
+const _WINDOW_RE = /^[1-9]\d*[hdm]$/;
 const _VALID_OPS = new Set(['==', '!=', '<', '<=', '>', '>=', 'in']);
 
 function _isValidTime(v) {
@@ -332,7 +477,10 @@ function renderSingleTrigger(container, depth, data = null) {
   container.innerHTML = '';
 
   // Data Source
-  const dsSelect = createSelect(DATA_SOURCES, { id: uid(), onInput: 'onFormChange()' });
+  // Only an author-configured trigger is worth carrying across a product switch.
+  // A bare trigger holds whichever source sorted first, not a decision.
+  const configured = !!(data?.id || data?.conditions?.length);
+  const dsSelect = createSelect(productSources(DATA_SOURCES, configured ? data.dataSource : null), { id: uid(), onInput: 'onFormChange()' });
   dsSelect.dataset.field = 'dataSource';
   if (data?.dataSource) dsSelect.value = data.dataSource;
 
@@ -552,7 +700,10 @@ function renderSingleTrigger(container, depth, data = null) {
   // dateRangeInDays (only for API sources)
   const dateRangeContainer = h('div', { className: 'hidden', dataset: { field: 'dateRange-container' } });
   const dateRangeSelect = createSelect(
-    [{ value: '', label: 'Default (1 day)' }, { value: '1', label: '1 day' }, { value: '7', label: '7 days' }, { value: '30', label: '30 days' }],
+    // Mirrors DateRangeConstants.VALID_RANGES in the engine. The window runs
+    // backwards for recorded data and forwards for patient_exercises, so the
+    // labels stay direction-neutral.
+    [{ value: '', label: 'Default (1 day)' }, { value: '1', label: '1 day' }, { value: '7', label: '7 days' }, { value: '14', label: '14 days' }, { value: '30', label: '30 days' }],
     { onInput: 'onFormChange()' }
   );
   dateRangeSelect.dataset.field = 'dateRangeInDays';
@@ -1033,6 +1184,60 @@ function renderConditionFields(container, type, dataSource, data = null, trigger
       );
       break;
     }
+
+    case 'Aggregate': {
+      const enInput = h('input', { type: 'text', placeholder: 'e.g. session_completed', onInput: 'onFormChange()' });
+      enInput.dataset.field = 'eventName';
+      if (data?.eventName) enInput.value = data.eventName;
+
+      const opSelect = createSelect(AGGREGATE_OPS, { onInput: 'onFormChange()' });
+      opSelect.dataset.field = 'op';
+      opSelect.value = data?.op || 'max';
+
+      const fieldInput = h('input', { type: 'text', placeholder: 'e.g. average_rom', onInput: 'onFormChange()' });
+      fieldInput.dataset.field = 'field';
+      if (data?.field) fieldInput.value = data.field;
+
+      const cmpSelect = createSelect(NUMERIC_OPERATORS, { onInput: 'onFormChange()' });
+      cmpSelect.dataset.field = 'operator';
+      cmpSelect.value = data?.operator || '>';
+
+      const valInput = h('input', { type: 'number', placeholder: '55', onInput: 'onFormChange()' });
+      valInput.dataset.field = 'value';
+      if (data?.value !== undefined) valInput.value = data.value;
+
+      const winInput = h('input', { type: 'text', placeholder: 'e.g. 7d', onInput: 'onFormChange()' });
+      winInput.dataset.field = 'window';
+      if (data?.window) winInput.value = data.window;
+
+      // Only the global session has a fixed id, so it is the sole nameable scope.
+      const scopeSelect = createSelect(['', 'global'], { onInput: 'onFormChange()' });
+      scopeSelect.dataset.field = 'scope';
+      scopeSelect.value = data?.scope || '';
+
+      // count reduces events, not a field value, so hide Field when it is selected.
+      const fieldRow = createField('Field', fieldInput, "Numeric attribute to reduce. Not used by 'count'.");
+      const syncFieldRow = () => { fieldRow.style.display = opSelect.value === 'count' ? 'none' : ''; };
+      opSelect.addEventListener('change', syncFieldRow);
+      syncFieldRow();
+
+      container.append(
+        createField('Event Name', enInput),
+        h('div', { className: 'form-grid' },
+          createField('Reducer', opSelect),
+          fieldRow
+        ),
+        h('div', { className: 'form-grid' },
+          createField('Operator', cmpSelect),
+          createField('Threshold', valInput)
+        ),
+        h('div', { className: 'form-grid' },
+          createField('Window', winInput, 'Rolling look-back: 7d, 12h, 30m'),
+          createField('Scope (opt)', scopeSelect, "Blank = the rule's own session. 'global' = full history.")
+        )
+      );
+      break;
+    }
   }
 }
 
@@ -1144,8 +1349,12 @@ function addVariable(data = null) {
 
   categorySelect.addEventListener('change', () => {
     const cat = categorySelect.value;
-    const sources = cat === 'api' ? API_DATA_SOURCES : cat === 'event' ? EVENT_DATA_SOURCES : [];
-    _updateSelectOptions(dsSelect, [{ value: '', label: '\u2014 Select data source \u2014' }, ...sources.map(s => ({ value: s, label: s }))]);
+    const all = cat === 'api' ? API_DATA_SOURCES : cat === 'event' ? EVENT_DATA_SOURCES : [];
+    // _pendingValue is set by the import path below, which dispatches this event
+    // before it can assign dsSelect.value \u2014 without it an out-of-product source
+    // would have no option to select and the variable would silently lose it.
+    const sources = productSources(all, dsSelect._pendingValue || dsSelect.value);
+    _updateSelectOptions(dsSelect, [{ value: '', label: '\u2014 Select data source \u2014' }, ...sources]);
     _updateSelectOptions(endpointSelect, [{ value: '', label: '\u2014 Select endpoint \u2014' }]);
     _updateSelectOptions(paramSelect, [{ value: '', label: '\u2014 Select parameter \u2014' }]);
     endpointRow.classList.add('hidden');
@@ -1296,7 +1505,9 @@ function addVariable(data = null) {
   if (data) {
     const isApi = API_DATA_SOURCES.includes(data.dataSource);
     categorySelect.value = isApi ? 'api' : 'event';
+    dsSelect._pendingValue = data.dataSource || '';
     categorySelect.dispatchEvent(new Event('change'));
+    dsSelect._pendingValue = '';
 
     if (data.dataSource) {
       dsSelect.value = data.dataSource;
@@ -1736,6 +1947,22 @@ function buildSingleConditionJSON(container, type) {
       cond.parameter = fieldVal(container, 'parameter') || '';
       cond.fromNow = fieldVal(container, 'fromNow') || '';
       break;
+    case 'Aggregate': {
+      cond.eventName = fieldVal(container, 'eventName') || '';
+      cond.op = fieldVal(container, 'op') || 'max';
+      // count reduces events rather than a field, so omit field entirely.
+      if (cond.op !== 'count') {
+        const aggField = fieldVal(container, 'field');
+        if (aggField) cond.field = aggField;
+      }
+      cond.operator = fieldVal(container, 'operator') || '>';
+      const agVal = container.querySelector('[data-field="value"]');
+      cond.value = agVal ? parseFloat(agVal.value) || 0 : 0;
+      cond.window = fieldVal(container, 'window') || '';
+      const agScope = fieldVal(container, 'scope');
+      if (agScope) cond.scope = agScope;
+      break;
+    }
   }
 
   return cond;
@@ -2040,6 +2267,7 @@ function uploadJSON(input) {
     // Load into editor regardless of errors so the user can fix them
     rules = loaded.map(r => JSON.parse(JSON.stringify(r)));
     activeRuleIndex = 0;
+    adoptProductFromRules(); // before rendering, so dropdowns offer the file's product
     populateFormFromRule(rules[0]);
     showScopeHint();
     renderRuleList();
@@ -2147,6 +2375,20 @@ function validateRule(jsonArray) {
         errors.push(`${err.instancePath || '/'}: ${err.message}`);
       }
     }
+  }
+
+  // A rule set is deployed to one app, so it must target a single product.
+  // The product switch blocks this while editing, but an uploaded JSON file can
+  // still arrive mixed — this is where that gets caught.
+  const productsInSet = new Set();
+  for (const rule of jsonArray) {
+    for (const id of ruleProductIds(rule)) productsInSet.add(id);
+  }
+  if (productsInSet.size > 1) {
+    const names = [...productsInSet].map(id => (PRODUCTS.find(p => p.id === id) || {}).label || id);
+    errors.push(
+      `Rule set mixes ${names.join(' and ')} data sources. A rule set must target a single product.`
+    );
   }
 
   // Custom validations
@@ -2304,6 +2546,16 @@ function validateConditionFields(expr, errors, prefix) {
           if (!cond.parameter && !cond.leaderboardId) errors.push(`${cp}parameter or leaderboardId is required`);
           if (!_VALID_OPS.has(cond.operator)) errors.push(`${cp}operator is missing or invalid`);
           if (cond.value === undefined || cond.value === null) errors.push(`${cp}value is required`);
+          break;
+        case 'Aggregate':
+          if (!cond.eventName) errors.push(`${cp}eventName is required`);
+          if (!AGGREGATE_OPS.includes(cond.op)) errors.push(`${cp}op must be one of ${AGGREGATE_OPS.join(', ')}`);
+          else if (cond.op !== 'count' && !cond.field) errors.push(`${cp}field is required for op "${cond.op}"`);
+          if (!NUMERIC_OPERATORS.includes(cond.operator)) errors.push(`${cp}operator is missing or invalid`);
+          if (typeof cond.value !== 'number') errors.push(`${cp}value must be a number`);
+          if (!cond.window) errors.push(`${cp}window is required`);
+          else if (!_WINDOW_RE.test(cond.window)) errors.push(`${cp}window must be a positive N[hdm] (e.g. "7d", "12h", "30m")`);
+          if (cond.scope !== undefined && cond.scope !== 'global') errors.push(`${cp}scope must be "global" or omitted`);
           break;
       }
     });
@@ -2482,6 +2734,11 @@ function highlightConditionFieldErrors(triggerRoot) {
           if (p && lb && !p.value?.trim() && !lb.value?.trim()) p.classList.add('field-error'); }
         markIfBadOp(get('operator'));
         break;
+      case 'Aggregate':
+        markIfEmpty(get('eventName'));
+        if (get('op')?.value !== 'count') markIfEmpty(get('field'));
+        { const w = get('window'); if (w && !_WINDOW_RE.test(w.value)) w.classList.add('field-error'); }
+        break;
     }
   });
 }
@@ -2605,12 +2862,30 @@ function resetForm(silent = false) {
    TEMPLATE SYSTEM
    ========================================================= */
 
+/**
+ * Templates are whole rules, so a Fleet template loaded into a Mojo set would
+ * flip the set's product behind the author's back \u2014 and lock it there. Only
+ * templates that fit the selected product are offered, which keeps the decision
+ * where the author made it: at the switch.
+ */
+function refreshTemplateOptions() {
+  const select = document.getElementById('template-select');
+  if (!select) return;
+  for (const opt of [...select.querySelectorAll('option')]) {
+    if (opt.value) opt.remove(); // keep the empty placeholder
+  }
+  for (const t of TEMPLATES) {
+    const owners = ruleProductIds(t);
+    if (owners.size && !owners.has(selectedProduct)) continue;
+    select.append(h('option', { value: t.id }, `${t.id} \u2014 ${t.description}`));
+  }
+  select.value = '';
+}
+
 function populateTemplateDropdown() {
   const select = document.getElementById('template-select');
   if (!select) return;
-  for (const t of TEMPLATES) {
-    select.append(h('option', { value: t.id }, `${t.id} \u2014 ${t.description}`));
-  }
+  refreshTemplateOptions();
   select.addEventListener('change', () => {
     if (!select.value) return;
     const template = TEMPLATES.find(t => t.id === select.value);
@@ -2981,6 +3256,7 @@ async function loadVersion(versionId, label) {
     loaded.forEach(migrateRule);
     rules = loaded.map(r => JSON.parse(JSON.stringify(r)));
     activeRuleIndex = 0;
+    adoptProductFromRules(); // before rendering, so dropdowns offer the version's product
     populateFormFromRule(rules[0]);
     showScopeHint();
     renderRuleList();
@@ -3041,12 +3317,26 @@ function refreshScopedTriggerIds() {
    INITIALIZATION
    ========================================================= */
 
+/** Renders the product switch and wires it to onProductChange(). */
+function renderProductSwitch() {
+  const host = document.getElementById('product-switch');
+  if (!host) return;
+  host.innerHTML = '';
+  for (const p of PRODUCTS) {
+    const btn = h('button', { type: 'button', title: `Build ${p.label} rules` }, p.label);
+    btn.setAttribute('aria-pressed', String(p.id === selectedProduct));
+    btn.addEventListener('click', () => onProductChange(p.id));
+    host.append(btn);
+  }
+}
+
 async function init() {
   _updateVersionsCountBadge();
   await loadSchema();
   populateTemplateDropdown();
+  renderProductSwitch();
 
-  rules = [{ id: 'rule_1', sessionScope: 'global', triggerExpression: { type: 'GROUP', groupType: 'AND' } }];
+  rules = [blankRule()];
   activeRuleIndex = 0;
 
   populateFormFromRule(rules[0]);

@@ -125,8 +125,8 @@
         },
         "dateRangeInDays": {
           "type": "integer",
-          "enum": [1, 7, 30],
-          "description": "Time period for API data retrieval. Default 1. Only for DRIVER_MEASUREMENTS_SCORE, TRIP_EVENTS, TRIP_DETAILS."
+          "enum": [1, 7, 14, 30],
+          "description": "Time period for API data retrieval, set on the SINGLE trigger expression (not on the variable). Default 1. Applies to DRIVER_MEASUREMENTS_SCORE, TRIP_EVENTS, TRIP_DETAILS, THERAPY_SESSIONS and PATIENT_EXERCISES. The window runs backwards from now for every type except PATIENT_EXERCISES, where it runs forwards - dateRangeInDays 1 on patient_exercises means the next 24 hours."
         }
       },
       "additionalProperties": false,
@@ -148,7 +148,8 @@
                     { "$ref": "#/definitions/timeCondition" },
                     { "$ref": "#/definitions/comparisonCondition" },
                     { "$ref": "#/definitions/eventCountCondition" },
-                    { "$ref": "#/definitions/relativeTimeWindowCondition" }
+                    { "$ref": "#/definitions/relativeTimeWindowCondition" },
+                    { "$ref": "#/definitions/aggregateCondition" }
                   ]
                 }
               },
@@ -205,9 +206,11 @@
         "MZONE",
         "GZONE",
         "External Source",
-        "MHub"
+        "MHub",
+        "Mojo",
+        "MojoPortal"
       ],
-      "description": "Event origin. Case-insensitive in engine. API sources: MZONE, GZONE, External Source."
+      "description": "Event origin. API sources: MZONE, GZONE, External Source, MojoPortal. Although the engine matches data sources case-insensitively, the event-buffer lookup and date-range extraction compare the literal string, so a rule must use the exact casing listed here - 'mojoportal' matches but then silently finds no events. Mojo = on-device events from the Mojo app; MojoPortal = the Mojo portal REST API, which never emits events itself and must be paired with a triggering event in an AND group."
     },
 
     "condition": {
@@ -218,7 +221,8 @@
         { "$ref": "#/definitions/timeCondition" },
         { "$ref": "#/definitions/comparisonCondition" },
         { "$ref": "#/definitions/eventCountCondition" },
-        { "$ref": "#/definitions/relativeTimeWindowCondition" }
+        { "$ref": "#/definitions/relativeTimeWindowCondition" },
+        { "$ref": "#/definitions/aggregateCondition" }
       ]
     },
 
@@ -435,6 +439,59 @@
         }
       },
       "additionalProperties": false
+    },
+
+    "aggregateCondition": {
+      "type": "object",
+      "description": "Reduces a numeric field across every matching event in a rolling time window (min/max/avg/sum/count) and compares the result against a threshold.",
+      "required": ["type", "eventName", "op", "operator", "value", "window"],
+      "properties": {
+        "type": { "type": "string", "const": "Aggregate" },
+        "eventName": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Event name to aggregate over (e.g. 'session_completed')."
+        },
+        "op": {
+          "type": "string",
+          "enum": ["min", "max", "avg", "sum", "count"],
+          "description": "Reducer applied to the window. 'count' counts events and ignores 'field'; every other op requires 'field'."
+        },
+        "field": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Numeric event attribute to reduce (e.g. 'average_rom'). Required unless op is 'count'."
+        },
+        "operator": { "$ref": "#/definitions/aggregateOperator" },
+        "value": {
+          "type": "number",
+          "description": "Threshold the reduced value is compared against."
+        },
+        "window": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*[hdm]$",
+          "description": "Rolling window looking back from now: '7d', '12h', '30m'. Note 'm' is minutes, not months."
+        },
+        "scope": {
+          "type": "string",
+          "minLength": 1,
+          "enum": ["global"],
+          "description": "Session whose history is read. Omit to read the rule's own session. Only 'global' can be named - daily and activity session ids embed a date or activity id."
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "op": { "not": { "const": "count" } } } },
+          "then": { "required": ["field"] }
+        }
+      ],
+      "additionalProperties": false
+    },
+
+    "aggregateOperator": {
+      "type": "string",
+      "enum": ["==", "!=", "<", "<=", ">", ">="],
+      "description": "Comparison operator for Aggregate conditions. An aggregate reduces to a number, so 'in' and 'contains' do not apply."
     },
 
     "operator": {

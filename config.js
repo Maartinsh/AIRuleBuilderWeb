@@ -68,7 +68,13 @@ const TRIGGER_IDS = {
     'google_nearby_pharmacy', 'google_nearby_hospital', 'google_nearby_atm',
     'google_nearby_parking', 'google_nearby_electric_vehicle_charging_station',
     'google_nearby_car_wash', 'google_nearby_car_repair', 'google_nearby_convenience_store'
-  ]
+  ],
+  // Mojo on-device events, submitted by the Mojo app via engine.submit().
+  Mojo: ['exercise_completed', 'session_completed', 'patient_info'],
+  // Mojo portal REST API. These never fire on their own — a MojoPortal branch
+  // must sit in an AND group with an event trigger (a Mojo event, or
+  // DateTime:day_changed for a morning briefing) or the rule can never match.
+  MojoPortal: ['therapy_sessions', 'patient_exercises']
 };
 
 /* =========================================================
@@ -185,6 +191,64 @@ const PARAMETERS = {
   'External Source': [
     ...GOOGLE_PLACES_PARAMS,
     ...WEATHER_PARAMS
+  ],
+  // Mojo on-device event attributes. Ranges mirror EventParameters.* in
+  // EventIdentifiers.kt. Nullable fields are omitted by the SDK rather than sent
+  // as null, and a condition on a missing parameter evaluates false — so e.g. a
+  // rep-based exercise carries no *_duration_seconds and vice-versa.
+  Mojo: [
+    // exercise_completed
+    { id: 'patient_exercise_id', type: 'int', label: 'patient exercise id' },
+    { id: 'reason_for_skipping', type: 'string', label: 'skip reason slug (e.g. too_painful, no_time)' },
+    { id: 'planned_repetitions', type: 'int', label: 'planned reps — rep-based exercises only' },
+    { id: 'actual_repetitions', type: 'int', label: 'actual reps — rep-based exercises only' },
+    { id: 'planned_duration_seconds', type: 'int', label: 'planned duration — timed exercises only' },
+    { id: 'actual_duration_seconds', type: 'int', label: 'actual duration — timed exercises only' },
+    { id: 'rom_score', type: 'int', label: 'range-of-motion score', min: 0, max: 100, unit: '' },
+    { id: 'time_score', type: 'int', label: 'timing score', min: 0, max: 100, unit: '' },
+    // session_completed
+    { id: 'session_id', type: 'int', label: 'therapy session id' },
+    { id: 'pain_score', type: 'int', label: 'reported pain', min: 0, max: 7, unit: '' },
+    { id: 'distress_score', type: 'int', label: 'reported distress', min: 0, max: 7, unit: '' },
+    { id: 'week', type: 'int', label: 'therapy programme week' },
+    { id: 'note', type: 'string', label: 'free-text session note (prompt context)' },
+    { id: 'average_rom', type: 'int', label: 'session average ROM', min: 0, max: 100, unit: '' },
+    { id: 'performance', type: 'int', label: 'session performance', min: 0, max: 100, unit: '' },
+    { id: 'exercise_count', type: 'int', label: 'exercises in the session' },
+    { id: 'completed_count', type: 'int', label: 'exercises actually completed' },
+    // patient_info
+    { id: 'id', type: 'int', label: 'patient id' },
+    { id: 'given_name', type: 'string', label: 'patient given name' },
+    { id: 'full_name', type: 'string', label: 'patient full name (fallback)' },
+    { id: 'therapy_duration', type: 'int', label: 'programme length' },
+    { id: 'sessions_per_week', type: 'int', label: 'prescribed sessions per week' },
+    { id: 'has_wellness_licence', type: 'bool', label: 'wellness features licensed? (true/false)' },
+    { id: 'current_streak', type: 'int', label: 'current adherence streak' },
+    { id: 'longest_streak', type: 'int', label: 'longest adherence streak' },
+    { id: 'current_missed_streak', type: 'int', label: 'consecutive missed sessions — re-engagement trigger' },
+    // shared by exercise_completed and session_completed
+    { id: 'is_completed', type: 'bool', label: 'completed? false = skipped (true/false)' },
+    { id: 'duration_seconds', type: 'int', label: 'duration in seconds' }
+  ],
+  // Mojo portal API response fields. Only engine-computed aggregates are listed —
+  // conditions run against these, not against the raw portal payload.
+  MojoPortal: [
+    { id: 'count', type: 'int', label: 'items returned (always present)' },
+    { id: 'latestRom', type: 'int', label: 'newest session ROM' },
+    { id: 'latestPain', type: 'int', label: 'newest session pain' },
+    { id: 'latestWeek', type: 'int', label: 'newest session programme week' },
+    { id: 'averageRom', type: 'double', label: 'mean ROM across the window' },
+    { id: 'peakRom', type: 'int', label: 'best ROM in the window' },
+    { id: 'previousSessionsAverageRom', type: 'double', label: 'mean ROM excluding the newest session' },
+    { id: 'romDeltaVsPreviousSessions', type: 'double', label: 'latest ROM minus previous average — absent with <2 scored sessions' },
+    { id: 'averagePain', type: 'double', label: 'mean pain across the window' },
+    { id: 'averageMood', type: 'double', label: 'mean mood across the window' },
+    { id: 'averagePerformance', type: 'double', label: 'mean performance across the window' },
+    { id: 'totalExercises', type: 'int', label: 'exercises across all sessions in the window' },
+    { id: 'totalSkips', type: 'int', label: 'skipped exercises in the window' },
+    { id: 'exerciseNames', type: 'string', label: 'prescribed exercise names, in programme order' },
+    { id: 'totalRepetitions', type: 'int', label: 'prescribed reps across the programme' },
+    { id: 'totalDurationSeconds', type: 'int', label: 'prescribed duration across the programme' }
   ]
 };
 
@@ -224,6 +288,38 @@ const FILTER_FIELDS = {
     { id: 'overspeed', type: 'double', label: 'km/h over limit' },
     { id: 'eventType_Id', type: 'string', label: 'event type ID' },
     { id: 'eventType_Description', type: 'string', label: 'event type description' },
+  ],
+  // MojoPortal therapy_sessions — items of the `sessions` array (_rawSessions),
+  // sorted oldest to newest. Field names are the portal's own, so they are
+  // camelCase here while the on-device Mojo event attributes are snake_case.
+  sessions: [
+    { id: 'week', type: 'int', label: 'programme week' },
+    { id: 'rangeOfMotion', type: 'int', label: 'session ROM' },
+    { id: 'pain', type: 'int', label: 'reported pain' },
+    { id: 'fatigue', type: 'int', label: 'reported fatigue' },
+    { id: 'mood', type: 'int', label: 'reported mood' },
+    { id: 'performance', type: 'int', label: 'session performance' },
+    { id: 'recoveryProgress', type: 'int', label: 'recovery progress' },
+    { id: 'utcSessionStart', type: 'datetime', label: 'session start (UTC)' },
+    { id: 'utcSessionEnd', type: 'datetime', label: 'session end (UTC)' },
+    { id: 'note', type: 'string', label: 'free-text note' },
+  ],
+  // MojoPortal patient_exercises — items of the `exercises` array
+  // (_rawExercises), sorted by orderNo. The engine flattens each prescription's
+  // nested `exercise` catalogue object up to the top level, republishing its id
+  // as exercise_Id, because field extraction only reads top-level keys.
+  exercises: [
+    { id: 'orderNo', type: 'int', label: 'position in the programme' },
+    { id: 'friendlyName', type: 'string', label: 'exercise name' },
+    { id: 'repetitions', type: 'int', label: 'prescribed reps' },
+    { id: 'durationSeconds', type: 'int', label: 'prescribed duration' },
+    { id: 'side', type: 'string', label: 'body side' },
+    { id: 'rangeOfMotion', type: 'int', label: 'target ROM' },
+    { id: 'isBilateral', type: 'bool', label: 'both sides? true/false' },
+    { id: 'isAuxiliary', type: 'bool', label: 'auxiliary exercise? true/false' },
+    { id: 'exerciseEquipment', type: 'string', label: 'required equipment' },
+    { id: 'description', type: 'string', label: 'exercise description' },
+    { id: 'instructions', type: 'string', label: 'exercise instructions' },
   ]
 };
 
@@ -231,13 +327,80 @@ const FILTER_FIELDS = {
    ENUMS & CONSTANTS
    ========================================================= */
 
+// Mirrors `object DataSources` in the engine's EventIdentifiers.kt, which is the
+// source of truth. Two of those constants have string values that differ from
+// their Kotlin names — MZONE_API -> 'MZONE' and ExternalSource -> 'External
+// Source' (with a space) — and the value is what a rule carries.
+// UserCommand exists in the engine and in rule-schema.json but is deliberately
+// omitted here: it has no trigger IDs, so offering it would render an empty
+// dropdown. Add it here the moment it gets a TRIGGER_IDS entry.
 const DATA_SOURCES = [
   'SmartDrive', 'BLE', 'POI', 'DateTime', 'Phone',
-  'Wellness', 'MHub', 'MZONE', 'GZONE', 'External Source'
+  'Wellness', 'MHub', 'MZONE', 'GZONE', 'External Source',
+  'Mojo', 'MojoPortal'
 ];
 
+/* =========================================================
+   PRODUCTS
+   The engine is domain-neutral; Fleet and Mojo are two rule
+   vocabularies layered on it. Selecting a product narrows every
+   data-source dropdown so a rule author only sees sources that
+   make sense for the app they are writing rules for.
+   ========================================================= */
+
+const PRODUCTS = [
+  { id: 'fleet', label: 'Fleet' },
+  { id: 'mojo', label: 'Mojo' }
+];
+
+const DEFAULT_PRODUCT = 'fleet';
+
+/**
+ * Data sources offered per product. A source missing from a product's list is
+ * hidden from that product's dropdowns entirely — it is a UI filter only, and
+ * has no effect on what the engine accepts.
+ *
+ * Shared entries (DateTime, Phone, Wellness) are genuinely domain-neutral.
+ * Wellness is shared because, although its BioSense biometrics drive fleet
+ * driver-fatigue rules, Mojo's patient_info carries has_wellness_licence to gate
+ * wellness-flavoured rules — so Mojo clearly intends to consume it.
+ *
+ * POI and External Source are listed fleet-only because, while neither is
+ * structurally fleet-locked, every trigger ID they currently expose is: POI maps
+ * to the jobs API, and External Source offers weather plus google_nearby_*
+ * lookups. Move them into `mojo` the moment a Mojo rule needs them.
+ */
+const PRODUCT_DATA_SOURCES = {
+  fleet: [
+    'SmartDrive', 'BLE', 'POI', 'MHub', 'MZONE', 'GZONE', 'External Source',
+    'DateTime', 'Phone', 'Wellness'
+  ],
+  mojo: [
+    'Mojo', 'MojoPortal',
+    'DateTime', 'Phone', 'Wellness'
+  ]
+};
+
+/**
+ * Narrows a list of data-source names to those valid for `product`.
+ * Order of the input list is preserved. An unknown product filters nothing,
+ * so a bad value degrades to showing everything rather than an empty UI.
+ */
+/**
+ * Data sources available to a product, in the product's own order — so the
+ * source a rule author reaches for most (SmartDrive for Fleet, Mojo for Mojo)
+ * is the one a fresh trigger defaults to, rather than whichever shared source
+ * happens to sort first in the master list.
+ */
+function filterByProduct(sources, product) {
+  const allowed = PRODUCT_DATA_SOURCES[product];
+  if (!allowed) return sources.slice();
+  return allowed.filter(s => sources.includes(s));
+}
+
 const OPERATORS = ['==', '!=', '<', '<=', '>', '>=', 'in'];
-const CONDITION_TYPES = ['Value', 'TimeRange', 'Time', 'Comparison', 'EventCount', 'RelativeTimeWindow'];
+const CONDITION_TYPES = ['Value', 'TimeRange', 'Time', 'Comparison', 'EventCount', 'RelativeTimeWindow', 'Aggregate'];
+const AGGREGATE_OPS = ['min', 'max', 'avg', 'sum', 'count'];
 const NUMERIC_OPERATORS = ['==', '!=', '<', '<=', '>', '>='];
 const STRING_OPERATORS = ['==', '!=', 'in', 'contains'];
 const TIME_PERIODS = ['currentMonth', 'lastMonth', 'currentWeek', 'lastWeek'];
@@ -796,10 +959,10 @@ const TRIGGER_CONDITION_CONFIG = {
    ========================================================= */
 
 /** API-based data sources — support advanced options (source, fields, filters, triggerId). */
-const API_DATA_SOURCES = ['MZONE', 'GZONE', 'External Source'];
+const API_DATA_SOURCES = ['MZONE', 'GZONE', 'External Source', 'MojoPortal'];
 
 /** Event/device data sources — simple extraction (dataSource + parameter). */
-const EVENT_DATA_SOURCES = ['SmartDrive', 'BLE', 'POI', 'DateTime', 'Phone', 'Wellness', 'MHub'];
+const EVENT_DATA_SOURCES = ['SmartDrive', 'BLE', 'POI', 'DateTime', 'Phone', 'Wellness', 'MHub', 'Mojo'];
 
 /**
  * API_ENDPOINTS — per data source, lists the actual API endpoints the engine supports.
@@ -1197,6 +1360,45 @@ const API_ENDPOINTS = {
         { id: 'closestPlaceAddress', label: 'closest store address' },
       ]
     },
+  ],
+  MojoPortal: [
+    {
+      id: 'therapy_sessions',
+      label: 'Therapy Sessions (History)',
+      description: 'THERAPY_SESSIONS — recorded sessions with engine-computed ROM/pain trends. Window looks backwards from now.',
+      apiType: 'THERAPY_SESSIONS',
+      params: [
+        { id: 'count', label: 'sessions in the window' },
+        { id: 'latestRom', label: 'newest session ROM' },
+        { id: 'latestPain', label: 'newest session pain' },
+        { id: 'latestWeek', label: 'newest session programme week' },
+        { id: 'averageRom', label: 'mean ROM across the window' },
+        { id: 'peakRom', label: 'best ROM in the window' },
+        { id: 'previousSessionsAverageRom', label: 'mean ROM excluding the newest session' },
+        { id: 'romDeltaVsPreviousSessions', label: 'latest ROM minus previous average — omitted with <2 scored sessions' },
+        { id: 'averagePain', label: 'mean pain across the window' },
+        { id: 'averageMood', label: 'mean mood across the window' },
+        { id: 'averagePerformance', label: 'mean performance across the window' },
+        { id: 'totalExercises', label: 'exercises across all sessions' },
+        { id: 'totalSkips', label: 'skipped exercises across all sessions' },
+        { id: 'sessionTrend', label: 'session list — ROM & pain by week', source: 'sessions', fields: ['week', 'rangeOfMotion', 'pain'] },
+        { id: 'sessionDetail', label: 'session list — full self-report', source: 'sessions', fields: ['week', 'rangeOfMotion', 'pain', 'fatigue', 'mood', 'performance', 'note'] },
+      ]
+    },
+    {
+      id: 'patient_exercises',
+      label: 'Prescribed Exercises (Programme)',
+      description: "PATIENT_EXERCISES — the patient's planned programme. Window looks FORWARDS: dateRangeInDays 1 = the next 24 hours.",
+      apiType: 'PATIENT_EXERCISES',
+      params: [
+        { id: 'count', label: 'prescribed exercises' },
+        { id: 'exerciseNames', label: 'exercise names, in programme order' },
+        { id: 'totalRepetitions', label: 'prescribed reps across the programme' },
+        { id: 'totalDurationSeconds', label: 'prescribed duration across the programme' },
+        { id: 'programme', label: 'exercise list — name, reps & duration', source: 'exercises', fields: ['orderNo', 'friendlyName', 'repetitions', 'durationSeconds'] },
+        { id: 'programmeDetail', label: 'exercise list — with instructions', source: 'exercises', fields: ['orderNo', 'friendlyName', 'repetitions', 'durationSeconds', 'side', 'instructions'] },
+      ]
+    },
   ]
 };
 
@@ -1257,6 +1459,28 @@ const EVENT_VARIABLE_PARAMS = {
     { id: 'hemoglobin', label: 'Hemoglobin (hemoglobin)' },
     { id: 'oxygenSaturation', label: 'Oxygen Saturation (oxygenSaturation)' },
     { id: 'sdnn', label: 'Sdnn (sdnn)' },
+  ],
+  // One prompt variable resolves to exactly ONE event — the most recent one
+  // carrying the attribute. A session of five exercises emits five separate
+  // exercise_completed events, so a `rom_score` variable renders only the last
+  // exercise's score, silently. To reason over a whole session, prefer the
+  // MojoPortal therapy_sessions array variables.
+  Mojo: [
+    { id: 'given_name', label: 'patient given name' },
+    { id: 'current_streak', label: 'current adherence streak' },
+    { id: 'longest_streak', label: 'longest adherence streak' },
+    { id: 'current_missed_streak', label: 'consecutive missed sessions' },
+    { id: 'sessions_per_week', label: 'prescribed sessions per week' },
+    { id: 'average_rom', label: 'session average ROM (session_completed)' },
+    { id: 'pain_score', label: 'reported pain 0-7 (session_completed)' },
+    { id: 'distress_score', label: 'reported distress 0-7 (session_completed)' },
+    { id: 'performance', label: 'session performance (session_completed)' },
+    { id: 'week', label: 'therapy programme week (session_completed)' },
+    { id: 'note', label: 'free-text session note (session_completed)' },
+    { id: 'exercise_count', label: 'exercises in the session (session_completed)' },
+    { id: 'completed_count', label: 'exercises completed (session_completed)' },
+    { id: 'rom_score', label: 'exercise ROM score — latest exercise only' },
+    { id: 'reason_for_skipping', label: 'skip reason — latest exercise only' },
   ]
 };
 
@@ -1334,7 +1558,12 @@ const VARIABLE_SCOPE = {
   MHub: 'activity',
   MZONE: 'any',
   GZONE: 'any',
-  'External Source': 'any'
+  'External Source': 'any',
+  // No Mojo event is activity-only. exercise_completed and session_completed are
+  // routed to the daily scope and patient_info to global, but routing is a
+  // block-list, so all three also reach global and its unlimited retention.
+  Mojo: 'any',
+  MojoPortal: 'any'
 };
 
 /* =========================================================

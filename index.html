@@ -58,6 +58,7 @@
       border-bottom: 1px solid var(--color-border);
       padding: 12px 24px;
       display: flex;
+      flex-wrap: wrap;
       align-items: center;
       justify-content: space-between;
       position: sticky;
@@ -233,6 +234,42 @@
       font-size: 0.6875rem;
       color: var(--color-text-muted);
       margin-top: 3px;
+    }
+
+    /* ======================================================
+       PRODUCT SWITCH
+       ====================================================== */
+    .product-switch {
+      display: inline-flex;
+      margin-left: 16px;
+      padding: 2px;
+      gap: 2px;
+      background: var(--color-bg);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+    }
+    .product-switch button {
+      padding: 5px 14px;
+      border: none;
+      border-radius: 3px;
+      background: transparent;
+      color: var(--color-text-secondary);
+      font-family: var(--font-sans);
+      font-size: 0.8125rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background var(--transition), color var(--transition);
+    }
+    .product-switch button:hover:not([aria-pressed="true"]) {
+      color: var(--color-text);
+    }
+    .product-switch button[aria-pressed="true"] {
+      background: var(--color-primary);
+      color: #fff;
+    }
+    .product-switch button:focus-visible {
+      outline: 2px solid var(--color-border-focus);
+      outline-offset: 1px;
     }
 
     /* ======================================================
@@ -703,6 +740,10 @@
        ====================================================== -->
   <header class="app-header">
     <h1><span>AI Engine</span> Rule Builder</h1>
+
+    <!-- Product switch — narrows which data sources the editor offers.
+         UI-only: the engine itself accepts any data source. -->
+    <div class="product-switch" id="product-switch" role="group" aria-label="Product"></div>
 
     <!-- Left side: publish actions (hidden) -->
     <div style="display:none">
