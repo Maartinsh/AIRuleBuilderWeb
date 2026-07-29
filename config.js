@@ -1479,6 +1479,7 @@ const EVENT_VARIABLE_PARAMS = {
     { id: 'note', label: 'free-text session note (session_completed)' },
     { id: 'exercise_count', label: 'exercises in the session (session_completed)' },
     { id: 'completed_count', label: 'exercises completed (session_completed)' },
+    { id: 'exercises', label: 'exercise results from the session (session_completed)' },
     { id: 'rom_score', label: 'exercise ROM score — latest exercise only' },
     { id: 'reason_for_skipping', label: 'skip reason — latest exercise only' },
   ]
