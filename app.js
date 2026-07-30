@@ -292,6 +292,15 @@ function toggleOutputSection() {
   updateVariablesAvailability();
 }
 
+function toggleFollowUpSection() {
+  const enabled = document.getElementById('follow-up-enabled')?.checked === true;
+  document.getElementById('follow-up-fields')?.classList.toggle('hidden', !enabled);
+}
+
+function updateProductSpecificSections() {
+  document.getElementById('section-follow-up')?.classList.toggle('hidden', selectedProduct !== 'mojo');
+}
+
 /**
  * Shows/hides the variables section based on whether instructions + tone are filled in.
  * Variables are only useful when the output section has content for the LLM prompt.
@@ -1786,6 +1795,14 @@ function buildRuleJSON() {
     }
   }
 
+  // -- Mojo conversational follow-up --
+  if (document.getElementById('follow-up-enabled')?.checked) {
+    rule.followUp = {
+      id: val('follow-up-id') || 'exercise_confirmation',
+      question: val('follow-up-question')
+    };
+  }
+
   // -- Trigger Expression --
   const triggerRoot = document.getElementById('trigger-root');
   const trigger = buildTriggerJSON(triggerRoot);
@@ -2407,6 +2424,12 @@ function validateRule(jsonArray) {
     if (rule.output && !rule.output.instructions) {
       errors.push(`${prefix}Output requires non-empty "instructions"`);
     }
+    if (rule.followUp && !rule.output) {
+      errors.push(`${prefix}A conversational follow-up requires "output"`);
+    }
+    if (rule.followUp && !rule.followUp.question?.trim()) {
+      errors.push(`${prefix}Follow-up question is required`);
+    }
 
     // Scope-event warnings
     const scope = rule.sessionScope || 'global';
@@ -2657,6 +2680,13 @@ function highlightErrorFields(jsonArray) {
     instructionsEl.classList.add('field-error');
   }
 
+  const followUpEnabled = document.getElementById('follow-up-enabled');
+  const followUpQuestion = document.getElementById('follow-up-question');
+  if (followUpEnabled?.checked && !followUpQuestion?.value.trim()) {
+    followUpQuestion?.classList.add('field-error');
+    document.getElementById('section-follow-up')?.classList.add('card-error');
+  }
+
   // Condition-required triggers: highlight trigger cards missing conditions
   if (rule.triggerExpression) {
     highlightMissingConditions(triggerRoot, rule.triggerExpression);
@@ -2814,6 +2844,12 @@ function populateFormFromRule(rule) {
   }
   toggleOutputSection();
 
+  // Mojo conversational follow-up
+  document.getElementById('follow-up-enabled').checked = !!rule.followUp;
+  document.getElementById('follow-up-id').value = rule.followUp?.id || 'exercise_confirmation';
+  document.getElementById('follow-up-question').value = rule.followUp?.question || '';
+  toggleFollowUpSection();
+
   // Trigger Expression
   const triggerRoot = document.getElementById('trigger-root');
   renderTriggerExpression(triggerRoot, 0, rule.triggerExpression);
@@ -2840,6 +2876,10 @@ function resetForm(silent = false) {
   document.getElementById('output-instructions').value = '';
   document.getElementById('output-tone').value = '';
   document.getElementById('variables-list').innerHTML = '';
+  document.getElementById('follow-up-enabled').checked = false;
+  document.getElementById('follow-up-id').value = 'exercise_confirmation';
+  document.getElementById('follow-up-question').value = '';
+  toggleFollowUpSection();
   const _ts = document.getElementById('template-select'); if (_ts) _ts.value = '';
   _varCounter = 0;
 
@@ -3328,6 +3368,7 @@ function renderProductSwitch() {
     btn.addEventListener('click', () => onProductChange(p.id));
     host.append(btn);
   }
+  updateProductSpecificSections();
 }
 
 async function init() {

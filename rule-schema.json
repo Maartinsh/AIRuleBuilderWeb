@@ -19,6 +19,12 @@
         { "required": ["output"] },
         { "required": ["actions"] }
       ],
+      "allOf": [
+        {
+          "if": { "required": ["followUp"] },
+          "then": { "required": ["output"] }
+        }
+      ],
       "properties": {
         "id": {
           "type": "string",
@@ -52,6 +58,9 @@
           "type": "array",
           "items": { "$ref": "#/definitions/action" },
           "description": "Top-level mobile app commands executed when rule fires."
+        },
+        "followUp": {
+          "$ref": "#/definitions/followUp"
         }
       },
       "additionalProperties": false
@@ -597,6 +606,25 @@
         "value": {
           "type": "string",
           "description": "Static value with $ prefix for extracted parameters (e.g. '$question')."
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "followUp": {
+      "type": "object",
+      "description": "A conversation-specific yes/no question asked after the rule triggers. The normalized answer is emitted to mobile; no action payload is configured here.",
+      "required": ["id", "question"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Stable identifier unique within this rule."
+        },
+        "question": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Literal user-facing question."
         }
       },
       "additionalProperties": false

@@ -176,6 +176,18 @@
       background: var(--color-primary-light);
       color: var(--color-primary);
     }
+    .follow-up-outcomes { display: flex; flex-wrap: wrap; gap: 8px; }
+    .follow-up-outcome {
+      display: inline-flex;
+      align-items: center;
+      min-height: 32px;
+      padding: 5px 10px;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      background: var(--color-surface-alt);
+      color: var(--color-text-secondary);
+      font-size: 0.8125rem;
+    }
     .card-toggle {
       font-size: 0.75rem;
       color: var(--color-text-muted);
@@ -889,6 +901,39 @@
               <div class="help-text">Variables extract data from the event buffer when the rule fires. If data is not present, it's simply omitted from the LLM output — the rule still fires normally.</div>
               <div id="variables-list"></div>
               <button class="btn-add" id="add-variable-btn" onclick="addVariable()" style="margin-top:8px">+ Add Variable</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- MOJO CONVERSATIONAL FOLLOW-UP -->
+      <div class="card hidden" id="section-follow-up">
+        <div class="card-header open" onclick="toggleCard(this)">
+          <span class="card-title">Exercise Follow-up <span class="label-hint" style="text-transform:none;font-weight:400">(Mojo)</span></span>
+          <span class="card-toggle">&#9660;</span>
+        </div>
+        <div class="card-body">
+          <div class="toggle-row">
+            <label class="toggle-switch">
+              <input type="checkbox" id="follow-up-enabled" onchange="toggleFollowUpSection(); onFormChange()">
+              <span class="toggle-slider"></span>
+            </label>
+            <label for="follow-up-enabled" style="text-transform:none;font-weight:400;color:var(--color-text)">Ask a question after this rule triggers</label>
+          </div>
+          <div id="follow-up-fields" class="hidden">
+            <input type="hidden" id="follow-up-id" value="exercise_confirmation">
+            <div class="form-row">
+              <label for="follow-up-question">Question</label>
+              <textarea id="follow-up-question" rows="2" maxlength="500" placeholder="e.g. Would you like to continue the exercise?" oninput="onFormChange()"></textarea>
+              <div class="help-text">Written exactly as the assistant should ask it. A conversational output is required.</div>
+            </div>
+            <div class="form-row">
+              <label>Answer outcomes</label>
+              <div class="follow-up-outcomes" aria-label="Fixed follow-up answer outcomes">
+                <span class="follow-up-outcome">Confirm exercise</span>
+                <span class="follow-up-outcome">Deny exercise</span>
+              </div>
+              <div class="help-text">Fixed for the initial version. Mobile receives <code>CONFIRMED</code> or <code>DENIED</code>; these labels are not stored as action payloads.</div>
             </div>
           </div>
         </div>
