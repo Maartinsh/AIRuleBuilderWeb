@@ -797,6 +797,18 @@
         </div>
       </div>
 
+      <!-- TOPICS -->
+      <div class="card" id="section-topics">
+        <div class="card-header" onclick="toggleCard(this)">
+          <span class="card-title">Topics <span class="badge" id="topic-count-badge">0</span></span>
+          <span class="card-toggle">&#9660;</span>
+        </div>
+        <div class="card-body" style="padding:8px 16px">
+          <div id="topic-list" style="display:flex;flex-direction:column;gap:4px;margin-bottom:4px"></div>
+          <div class="help-text">Topics group rules by theme. Click a topic to set its precedence, tone, batch cap and shared throttle — blank fields use engine defaults.</div>
+        </div>
+      </div>
+
       <!-- RULE BASICS -->
       <div class="card" id="section-basics">
         <div class="card-header open" onclick="toggleCard(this)">
@@ -829,7 +841,11 @@
               <input type="number" id="rule-priority" min="0" max="10" value="0" oninput="onFormChange()">
               <div class="help-text">10 = life-threatening, 7 = standard, 0 = lowest</div>
             </div>
-            <div></div>
+            <div class="form-row">
+              <label for="rule-topic">Topic <span class="label-hint">(optional)</span></label>
+              <select id="rule-topic" onchange="onTopicSelectChange(this)"></select>
+              <div class="help-text">Theme for batch grouping, topic budgets and muting. Pick an existing topic; "+ New topic…" creates one.</div>
+            </div>
           </div>
           <hr class="section-divider">
           <div class="form-grid">

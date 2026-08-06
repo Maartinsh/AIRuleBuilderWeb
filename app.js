@@ -17,6 +17,14 @@ let activeRuleIndex = 0; // Currently-edited rule index
 let selectedProduct = DEFAULT_PRODUCT; // Narrows which data sources are offered
 
 /**
+ * Topic registry for the current set: normalized topic name -> config object.
+ * Configs arrive from imported envelope documents (precedence, tone, maxPerBatch,
+ * throttle); topics created in the editor start with an empty config. Export
+ * builds the document's "topics" block from the topics rules actually use.
+ */
+let topicConfigs = {};
+
+/**
  * The product that *exclusively* owns a data source, or null when the source is
  * shared (DateTime, Phone, Wellness) or unknown. Only an exclusively-owned
  * source pins a rule to a product — a rule built purely from shared sources is
@@ -150,12 +158,234 @@ function onProductChange(product) {
   selectedProduct = product;
   rules = [blankRule()];
   activeRuleIndex = 0;
+  topicConfigs = {}; // topics are part of the discarded set; seeds follow the product
   refreshTemplateOptions();
   renderProductSwitch(); // here, not in the click handler, so programmatic callers repaint too
   populateFormFromRule(rules[0]);
   renderRuleList();
   onFormChange();
   return true;
+}
+
+/* =========================================================
+   TOPICS
+   Topic names are identities the engine compares for equality
+   (after slug normalization), unlike tone, which is free prose.
+   The select is a closed list — free text exists only in the
+   explicit "+ New topic…" flow, where typos are caught against
+   the known vocabulary before they become a second topic.
+   ========================================================= */
+
+function normalizeTopic(raw) {
+  const t = (raw || '').trim().toLowerCase().replace(/\s+/g, '_');
+  return t || null;
+}
+
+function _levenshtein(a, b) {
+  if (a === b) return 0;
+  const prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    let diag = prev[0];
+    prev[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const tmp = prev[j];
+      prev[j] = Math.min(prev[j] + 1, prev[j - 1] + 1, diag + (a[i - 1] === b[j - 1] ? 0 : 1));
+      diag = tmp;
+    }
+  }
+  return prev[b.length];
+}
+
+/** Topic -> number of rules using it, across the saved set. */
+function topicUsage() {
+  const counts = new Map();
+  for (const r of rules) {
+    if (r && r.topic) counts.set(r.topic, (counts.get(r.topic) || 0) + 1);
+  }
+  return counts;
+}
+
+/** Registry topics plus topics in use (imported sets may use unregistered ones). */
+function setTopics() {
+  return [...new Set([...Object.keys(topicConfigs), ...topicUsage().keys()])].sort();
+}
+
+/** The vocabulary offered in the topic dropdown: product seeds + this set's topics. */
+function knownTopics() {
+  const seeds = PRODUCT_TOPICS[selectedProduct] || [];
+  return [...new Set([...seeds, ...setTopics()])].sort();
+}
+
+/**
+ * The known topic a new name is probably a typo of: containment or edit distance
+ * <= 2. Cannot catch semantic duplicates (groceries vs shopping) — the Topics
+ * panel's side-by-side counts are the net for those.
+ */
+function nearestTopic(name) {
+  let best = null;
+  let bestDist = 3;
+  for (const t of knownTopics()) {
+    if (t === name) continue;
+    if (t.includes(name) || name.includes(t)) return t;
+    const d = _levenshtein(name, t);
+    if (d < bestDist) { best = t; bestDist = d; }
+  }
+  return best;
+}
+
+function renderTopicOptions(selected) {
+  const sel = document.getElementById('rule-topic');
+  if (!sel) return;
+  const topics = knownTopics();
+  if (selected && !topics.includes(selected)) topics.push(selected);
+  sel.innerHTML = '';
+  sel.append(h('option', { value: '' }, '(none)'));
+  for (const t of topics) sel.append(h('option', { value: t }, t));
+  sel.append(h('option', { value: '__new__' }, '+ New topic…'));
+  sel.value = selected || '';
+}
+
+function onTopicSelectChange(sel) {
+  if (sel.value === '__new__') {
+    const name = normalizeTopic(prompt('New topic name:'));
+    if (!name) {
+      renderTopicOptions('');
+      onFormChange();
+      return;
+    }
+    if (!knownTopics().includes(name)) {
+      const near = nearestTopic(name);
+      if (near) {
+        const count = topicUsage().get(near) || 0;
+        const useExisting = confirm(
+          `"${name}" looks close to the existing topic "${near}"` +
+          `${count ? ` (used by ${count} rule${count === 1 ? '' : 's'})` : ''}.\n\n` +
+          `OK = use "${near}"   ·   Cancel = create "${name}" as a new topic`
+        );
+        if (useExisting) {
+          renderTopicOptions(near);
+          onFormChange();
+          return;
+        }
+      }
+      topicConfigs[name] = topicConfigs[name] || {};
+    }
+    renderTopicOptions(name);
+  }
+  onFormChange();
+}
+
+function renderTopicPanel() {
+  const list = document.getElementById('topic-list');
+  if (!list) return;
+  // Never rebuild the panel under the user's cursor — updatePreview() runs on
+  // every config keystroke, and replacing the input mid-typing would drop focus.
+  if (list.contains(document.activeElement)) return;
+  const usage = topicUsage();
+  const names = setTopics();
+  list.innerHTML = '';
+  const badge = document.getElementById('topic-count-badge');
+  if (badge) badge.textContent = names.length;
+  if (!names.length) {
+    list.append(h('div', { className: 'help-text' }, 'No topics yet — set one in Rule Basics.'));
+    return;
+  }
+  for (const t of names) {
+    const count = usage.get(t) || 0;
+    const expanded = _expandedTopic === t;
+    list.append(h('div', { className: 'rule-list-item', style: 'cursor:pointer',
+      onClick: () => { _expandedTopic = expanded ? null : t; renderTopicPanel(); } },
+      h('span', { className: 'rule-list-id' }, `${expanded ? '▾' : '▸'} ${t}`),
+      h('span', { className: 'rule-list-scope' },
+        count ? `${count} rule${count === 1 ? '' : 's'}` : '0 rules — not exported')
+    ));
+    if (expanded) list.append(_topicConfigEditor(t));
+  }
+}
+
+let _expandedTopic = null;
+
+/** Inline editor for one topic's registry config. Blank field = engine default. */
+function _topicConfigEditor(topic) {
+  const cfg = topicConfigs[topic] || {};
+  const th = cfg.throttle || {};
+  const field = (label, key, value, opts = {}) => h('div', {},
+    h('label', {}, label),
+    h('input', {
+      type: opts.type || 'number', value: value ?? '', min: opts.min,
+      placeholder: opts.placeholder || 'default',
+      dataset: { topicField: key },
+      onInput: (e) => _setTopicField(topic, key, e.target.value)
+    })
+  );
+  return h('div', { className: 'form-grid', style: 'padding:6px 8px 12px' },
+    field('Precedence', 'precedence', cfg.precedence),
+    field('Max per batch', 'maxPerBatch', cfg.maxPerBatch, { min: 1 }),
+    field('Tone', 'tone', cfg.tone, { type: 'text', placeholder: 'rule tone wins' }),
+    field('Cooldown (min)', 'cooldownMinutes', th.cooldownMinutes, { min: 0 }),
+    field('Max triggers / day', 'maxTriggersPerDay', th.maxTriggersPerDay, { min: 1 })
+  );
+}
+
+function _setTopicField(topic, key, raw) {
+  const cfg = (topicConfigs[topic] = topicConfigs[topic] || {});
+  const v = raw.trim();
+  if (key === 'cooldownMinutes' || key === 'maxTriggersPerDay') {
+    const throttle = (cfg.throttle = cfg.throttle || {});
+    if (v === '' || !Number.isFinite(Number(v))) delete throttle[key];
+    else throttle[key] = Number(v);
+    if (!Object.keys(throttle).length) delete cfg.throttle;
+  } else if (v === '') {
+    delete cfg[key];
+  } else {
+    cfg[key] = key === 'tone' ? v : Number(v);
+  }
+  onFormChange();
+}
+
+/**
+ * The exported/published document. Stays a bare rules array until a topic is
+ * used, so sets that don't need topics keep working on engine versions that
+ * predate the envelope shape. The registry carries only topics in use — configs
+ * for removed topics would otherwise accumulate forever.
+ */
+function buildDocument(rulesArray) {
+  const used = new Set(rulesArray.map(r => r && r.topic).filter(Boolean));
+  if (used.size === 0) return rulesArray;
+  const topics = {};
+  for (const t of [...used].sort()) topics[t] = topicConfigs[t] || {};
+  return { topics, rules: rulesArray };
+}
+
+/** Topics block for a publish payload, or null when the set uses no topics. */
+function _topicsBlock(rulesArray) {
+  const doc = buildDocument(rulesArray);
+  return Array.isArray(doc) ? null : doc.topics;
+}
+
+/** Post-import net: surface probable topic typos that arrived in a file. */
+function _warnNearDuplicateTopics() {
+  const names = setTopics();
+  for (let i = 0; i < names.length; i++) {
+    for (let j = i + 1; j < names.length; j++) {
+      if (_levenshtein(names[i], names[j]) <= 2) {
+        showToast(`Possible duplicate topics: "${names[i]}" / "${names[j]}" — if they mean the same thing, pick one topic on the affected rules.`, 6000);
+        return;
+      }
+    }
+  }
+}
+
+/** Normalized copy of an imported topics registry; non-object entries are dropped. */
+function _adoptTopicConfigs(raw) {
+  const out = {};
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    for (const [name, cfg] of Object.entries(raw)) {
+      const t = normalizeTopic(name);
+      if (t && cfg && typeof cfg === 'object' && !Array.isArray(cfg)) out[t] = cfg;
+    }
+  }
+  return out;
 }
 
 /* =========================================================
@@ -199,7 +429,14 @@ async function loadSchema() {
     }
     const AjvCtor = typeof Ajv !== 'undefined' ? Ajv : ajv7;
     ajvInstance = new AjvCtor({ allErrors: true, strict: false });
-    schemaValidator = ajvInstance.compile(schema);
+    // The schema root is a oneOf (legacy array | envelope with topics) so it can
+    // describe both published shapes, but the editor always validates the bare
+    // rules array — compiling the array branch avoids ajv reporting the other
+    // branch's mismatches ("must be object") against every valid array.
+    const editorSchema = schema.oneOf
+      ? { $schema: schema.$schema, type: 'array', minItems: 1, items: { $ref: '#/definitions/rule' }, definitions: schema.definitions }
+      : schema;
+    schemaValidator = ajvInstance.compile(editorSchema);
   } catch (e) {
     console.warn('Could not load Ajv:', e.message);
     showToast('Ajv not loaded — schema validation unavailable.');
@@ -1772,6 +2009,9 @@ function buildRuleJSON() {
   const priority = intVal('rule-priority');
   if (priority > 0) rule.priority = priority;
 
+  const topic = val('rule-topic');
+  if (topic && topic !== '__new__') rule.topic = topic;
+
   // -- Throttle --
   const cooldown = intVal('throttle-cooldown') || 30;
   const maxTriggers = intVal('throttle-max') || 3;
@@ -2177,7 +2417,7 @@ function onFormChange() {
 
 function updatePreview() {
   saveActiveRule();
-  const jsonStr = JSON.stringify(rules, null, 2);
+  const jsonStr = JSON.stringify(buildDocument(rules), null, 2);
   const highlighted = syntaxHighlight(jsonStr);
 
   document.getElementById('preview-body').innerHTML = highlighted;
@@ -2188,9 +2428,10 @@ function updatePreview() {
   document.getElementById('preview-meta').textContent =
     `${rules.length} rule(s), ${lines} lines, ${bytes} bytes`;
 
-  // Live validation (non-blocking)
+  // Live validation (non-blocking) — the schema validator checks the rules array
   liveValidate(rules);
   renderRuleList();
+  renderTopicPanel();
   checkScopeWarnings();
   _updateVariableVisibility();
 }
@@ -2246,6 +2487,10 @@ function validateAndShow() {
  */
 function migrateRule(rule) {
   if (rule && rule.sessionScope === 'trip') rule.sessionScope = 'activity';
+  if (rule && rule.topic != null) {
+    const t = normalizeTopic(rule.topic);
+    if (t) rule.topic = t; else delete rule.topic;
+  }
   return rule;
 }
 
@@ -2284,12 +2529,14 @@ function uploadJSON(input) {
     // Load into editor regardless of errors so the user can fix them
     rules = loaded.map(r => JSON.parse(JSON.stringify(r)));
     activeRuleIndex = 0;
+    topicConfigs = _adoptTopicConfigs(Array.isArray(parsed) ? null : parsed.topics);
     adoptProductFromRules(); // before rendering, so dropdowns offer the file's product
     populateFormFromRule(rules[0]);
     showScopeHint();
     renderRuleList();
     updatePreview();
     highlightErrorFields(rules);
+    _warnNearDuplicateTopics();
 
     if (results.valid) {
       showToast(`Loaded ${rules.length} rule(s) — validation passed!`, 4000);
@@ -2779,7 +3026,7 @@ function highlightConditionFieldErrors(triggerRoot) {
 
 function copyJSON() {
   saveActiveRule();
-  const jsonStr = JSON.stringify(rules, null, 2);
+  const jsonStr = JSON.stringify(buildDocument(rules), null, 2);
   navigator.clipboard.writeText(jsonStr).then(() => {
     showToast('JSON copied to clipboard!');
   }).catch(() => {
@@ -2796,7 +3043,7 @@ function copyJSON() {
 
 function downloadJSON() {
   saveActiveRule();
-  const jsonStr = JSON.stringify(rules, null, 2);
+  const jsonStr = JSON.stringify(buildDocument(rules), null, 2);
   const filename = rules.length === 1 ? (rules[0].id || 'rule') + '.json' : 'rules.json';
   const blob = new Blob([jsonStr], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -2823,6 +3070,7 @@ function populateFormFromRule(rule) {
   document.getElementById('rule-description').value = rule.description || '';
   document.getElementById('rule-scope').value = rule.sessionScope || 'global';
   document.getElementById('rule-priority').value = rule.priority || 0;
+  renderTopicOptions(normalizeTopic(rule.topic) || '');
   showScopeHint();
 
   // Throttle
@@ -2870,6 +3118,7 @@ function resetForm(silent = false) {
   document.getElementById('rule-description').value = '';
   document.getElementById('rule-scope').value = 'global';
   document.getElementById('rule-priority').value = 0;
+  renderTopicOptions('');
   document.getElementById('throttle-cooldown').value = 30;
   document.getElementById('throttle-max').value = 3;
   document.getElementById('output-enabled').checked = true;
@@ -2892,6 +3141,7 @@ function resetForm(silent = false) {
   if (!silent) {
     rules = [{ id: '', sessionScope: 'global', triggerExpression: { type: 'GROUP', groupType: 'AND' } }];
     activeRuleIndex = 0;
+    topicConfigs = {};
     renderRuleList();
     onFormChange();
     showToast('All rules cleared');
@@ -3096,8 +3346,10 @@ async function submitPublish() {
 
     const versionId = _genVersionId(name);
     const publishedAt = new Date().toISOString();
+    const topics = _topicsBlock(rulesArray);
     const payload = {
       _meta: { versionId, name, publishedAt, ruleCount: rulesArray.length, description },
+      ...(topics ? { topics } : {}),
       rules: rulesArray
     };
 
@@ -3149,8 +3401,10 @@ async function updateLoadedVersion() {
     const existingData = JSON.parse(atob(existing.content.replace(/\n/g, '')));
 
     const updatedAt = new Date().toISOString();
+    const topics = _topicsBlock(rulesArray);
     const payload = {
       _meta: { ...existingData._meta, ruleCount: rulesArray.length, updatedAt },
+      ...(topics ? { topics } : {}),
       rules: rulesArray
     };
     await _ghWrite(`rules/${_loadedVersionId}.json`, JSON.stringify(payload, null, 2), existing.sha, `Update version: ${_loadedVersionId}`);
@@ -3296,6 +3550,7 @@ async function loadVersion(versionId, label) {
     loaded.forEach(migrateRule);
     rules = loaded.map(r => JSON.parse(JSON.stringify(r)));
     activeRuleIndex = 0;
+    topicConfigs = _adoptTopicConfigs(Array.isArray(data) ? null : data.topics);
     adoptProductFromRules(); // before rendering, so dropdowns offer the version's product
     populateFormFromRule(rules[0]);
     showScopeHint();

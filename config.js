@@ -398,6 +398,26 @@ function filterByProduct(sources, product) {
   return allowed.filter(s => sources.includes(s));
 }
 
+/**
+ * Seed topic vocabulary per product. Topics are grouping keys the engine compares
+ * for equality (after slug normalization), so the builder offers a curated list and
+ * treats free-text creation as an explicit "+ New topic" action with typo detection —
+ * not as something that happens by typing into a blank field.
+ *
+ * Seeds are suggestions, not a closed set: a set may create its own topics, and the
+ * exported registry is built from the topics its rules actually use.
+ */
+const PRODUCT_TOPICS = {
+  fleet: [
+    'safety', 'driving_behaviour', 'jobs', 'vehicle', 'navigation',
+    'wellness', 'engagement'
+  ],
+  mojo: [
+    'adherence', 'progress', 'exercise_technique', 'encouragement',
+    'pain', 'wellness'
+  ]
+};
+
 const OPERATORS = ['==', '!=', '<', '<=', '>', '>=', 'in'];
 const CONDITION_TYPES = ['Value', 'TimeRange', 'Time', 'Comparison', 'EventCount', 'RelativeTimeWindow', 'Aggregate'];
 const AGGREGATE_OPS = ['min', 'max', 'avg', 'sum', 'count'];
