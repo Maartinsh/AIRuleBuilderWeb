@@ -118,6 +118,12 @@
           "type": "string",
           "minLength": 1,
           "description": "Theme grouping key (e.g. 'safety', 'adherence'). Normalized to a slug by the engine. Drives batch grouping/ordering, topic budgets, tone defaults and runtime muting. Should name an entry in the document's topics registry when one exists."
+        },
+        "conversation": {
+          "type": "string",
+          "enum": ["auto", "manual"],
+          "default": "auto",
+          "description": "Whether a trigger of this rule is meant to open a conversation on its own. 'auto' (default) is the existing behaviour. 'manual' marks a rule the app should record without speaking - badges, counters, rollups - so normally no conversation happens for it at all. Advisory only: the engine delivers every triggered rule either way."
         }
       },
       "additionalProperties": false

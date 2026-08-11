@@ -835,7 +835,7 @@
             <label for="rule-description">Description <span class="label-hint">(optional)</span></label>
             <textarea id="rule-description" rows="2" placeholder="Human-readable description" oninput="onFormChange()"></textarea>
           </div>
-          <div class="form-grid">
+          <div class="form-grid-3">
             <div class="form-row">
               <label for="rule-priority">Priority <span class="label-hint">(0-10)</span></label>
               <input type="number" id="rule-priority" min="0" max="10" value="0" oninput="onFormChange()">
@@ -845,6 +845,14 @@
               <label for="rule-topic">Topic <span class="label-hint">(optional)</span></label>
               <select id="rule-topic" onchange="onTopicSelectChange(this)"></select>
               <div class="help-text">Theme for batch grouping, topic budgets and muting. Pick an existing topic; "+ New topic…" creates one.</div>
+            </div>
+            <div class="form-row">
+              <label for="rule-conversation">Conversation</label>
+              <select id="rule-conversation" onchange="onFormChange()">
+                <option value="auto">Automatic</option>
+                <option value="manual">Manual (stay quiet)</option>
+              </select>
+              <div class="help-text">Automatic: the trigger opens a conversation. Manual: the app records the trigger and says nothing — for badges, counters and rollups not worth interrupting the user for.</div>
             </div>
           </div>
           <hr class="section-divider">

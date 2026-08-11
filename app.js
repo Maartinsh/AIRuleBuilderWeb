@@ -2012,6 +2012,9 @@ function buildRuleJSON() {
   const topic = val('rule-topic');
   if (topic && topic !== '__new__') rule.topic = topic;
 
+  // Omitted when automatic so documents for existing rules stay byte-identical.
+  if (val('rule-conversation') === 'manual') rule.conversation = 'manual';
+
   // -- Throttle --
   const cooldown = intVal('throttle-cooldown') || 30;
   const maxTriggers = intVal('throttle-max') || 3;
@@ -2393,7 +2396,10 @@ function renderRuleList() {
       onClick: (e) => { if (!e.target.closest('.rule-list-action')) switchToRule(i); }
     },
       h('span', { className: 'rule-list-id' }, rule.id || `(untitled #${i + 1})`),
-      h('span', { className: 'rule-list-scope' }, rule.sessionScope || 'global'),
+      h('span', { className: 'rule-list-scope' },
+        rule.conversation === 'manual'
+          ? `${rule.sessionScope || 'global'} · manual`
+          : (rule.sessionScope || 'global')),
       h('button', { className: 'rule-list-action rule-list-duplicate', title: 'Duplicate rule',
         onClick: (e) => { e.stopPropagation(); duplicateRule(i); } }, '\u29C9'),
       h('button', { className: 'rule-list-action rule-list-delete', title: 'Delete rule',
@@ -2490,6 +2496,11 @@ function migrateRule(rule) {
   if (rule && rule.topic != null) {
     const t = normalizeTopic(rule.topic);
     if (t) rule.topic = t; else delete rule.topic;
+  }
+  // The engine parses the mode case-insensitively; the schema enum does not.
+  if (rule && rule.conversation != null) {
+    const c = String(rule.conversation).trim().toLowerCase();
+    if (c === 'manual') rule.conversation = 'manual'; else delete rule.conversation;
   }
   return rule;
 }
@@ -3071,6 +3082,8 @@ function populateFormFromRule(rule) {
   document.getElementById('rule-scope').value = rule.sessionScope || 'global';
   document.getElementById('rule-priority').value = rule.priority || 0;
   renderTopicOptions(normalizeTopic(rule.topic) || '');
+  document.getElementById('rule-conversation').value =
+    String(rule.conversation || '').trim().toLowerCase() === 'manual' ? 'manual' : 'auto';
   showScopeHint();
 
   // Throttle
@@ -3119,6 +3132,7 @@ function resetForm(silent = false) {
   document.getElementById('rule-scope').value = 'global';
   document.getElementById('rule-priority').value = 0;
   renderTopicOptions('');
+  document.getElementById('rule-conversation').value = 'auto';
   document.getElementById('throttle-cooldown').value = 30;
   document.getElementById('throttle-max').value = 3;
   document.getElementById('output-enabled').checked = true;
