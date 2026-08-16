@@ -123,7 +123,7 @@ const PARAMETERS = {
   //
   // Typed entries: the condition builder uses `type` to pick the right value
   // input (number for int/double, dropdown for enum). `wellnessLevel` values
-  // come from BioSense SDK's WellnessLevel enum.
+  // come from the Wellness framework's WellnessLevel enum.
   //
   // `min`/`max`/`unit`/`thresholds` mirror the bucketization in
   // FleetDrive-Android's MeasurementDetailsMapper.kt, EXCEPT where that mapper is
@@ -136,7 +136,7 @@ const PARAMETERS = {
   Wellness: [
     { id: 'stressIndex', type: 'int', label: 'Stress Index — raw Baevsky (stressIndex)',
       min: 0, max: 200, unit: '',
-      // Raw BioSense value; mobile screen does not surface a Low/High label
+      // Raw Wellness framework value; mobile screen does not surface a Low/High label
       // for this field — see normalizedStressIndex below for the 5-level scale
       // shown as "Stress Level" on the measurement screen.
       thresholds: [] },
@@ -366,7 +366,7 @@ const DEFAULT_PRODUCT = 'fleet';
  * has no effect on what the engine accepts.
  *
  * Shared entries (DateTime, Phone, Wellness) are genuinely domain-neutral.
- * Wellness is shared because, although its BioSense biometrics drive fleet
+ * Wellness is shared because, although its Wellness framework biometrics drive fleet
  * driver-fatigue rules, Mojo's patient_info carries has_wellness_licence to gate
  * wellness-flavoured rules — so Mojo clearly intends to consume it.
  *
