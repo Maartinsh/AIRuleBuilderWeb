@@ -126,11 +126,13 @@ const PARAMETERS = {
   // come from BioSense SDK's WellnessLevel enum.
   //
   // `min`/`max`/`unit`/`thresholds` mirror the bucketization in
-  // FleetDrive-Android's MeasurementDetailsMapper.kt — keep them in sync if
-  // those thresholds change. Threshold ranges are inclusive on both ends and
-  // ordered low → high; the rule builder UI uses them to render a legend and
-  // quick-pick chips so rule writers know which numeric value corresponds to
-  // the Low/Normal/High/Extreme labels shown on the mobile measurement screen.
+  // FleetDrive-Android's MeasurementDetailsMapper.kt, EXCEPT where that mapper is
+  // itself wrong about the scale (see wellnessIndex). Threshold ranges are
+  // inclusive on both ends and ordered low → high; the rule builder UI uses them
+  // to render a legend and quick-pick chips so rule writers know which numeric
+  // value corresponds to the Low/Normal/High/Extreme labels shown on the mobile
+  // measurement screen. An empty `thresholds` array means the bands are unknown,
+  // not that the field is unbucketed.
   Wellness: [
     { id: 'stressIndex', type: 'int', label: 'Stress Index — raw Baevsky (stressIndex)',
       min: 0, max: 200, unit: '',
@@ -140,19 +142,22 @@ const PARAMETERS = {
       thresholds: [] },
     { id: 'normalizedStressIndex', type: 'int', label: 'Stress Level (normalizedStressIndex)',
       min: 0, max: 30, unit: '',
-      thresholds: [
-        { label: 'Normal',  range: [0, 3] },
-        { label: 'High',    range: [4, 5] },
-        { label: 'Extreme', range: [6, 30] },
-      ] },
+      // No legend on purpose: the band boundaries are unconfirmed. The SDK
+      // documents none, the measurement screen buckets 1-3/4-5/6-10, and the only
+      // observed production values are 25 and 28 — which those buckets call
+      // unknown. Prefer stressIndex until someone pins the scale down.
+      thresholds: [] },
     { id: 'wellnessIndex', type: 'int', label: 'Wellness Score (wellnessIndex)',
-      min: 0, max: 100, unit: '',
+      min: 0, max: 10, unit: '',
+      // Every app renders this as "x/10" and submits the SDK value unscaled.
+      // MeasurementDetailsMapper.categorizeWellnessIndex buckets it 0-100 and is
+      // wrong for the same reason — do not sync these back to it.
       thresholds: [
-        { label: 'Very Low',      range: [0,  39]  },
-        { label: 'Low',           range: [40, 69]  },
-        { label: 'Below Average', range: [70, 79]  },
-        { label: 'Normal',        range: [80, 89]  },
-        { label: 'High',          range: [90, 100] },
+        { label: 'Very Low',      range: [0,  3]  },
+        { label: 'Low',           range: [4,  6]  },
+        { label: 'Below Average', range: [7,  7]  },
+        { label: 'Normal',        range: [8,  8]  },
+        { label: 'High',          range: [9,  10] },
       ] },
     { id: 'hemoglobin', type: 'double', label: 'Hemoglobin (hemoglobin)',
       min: 0, max: 30, unit: 'g/dL',
@@ -1622,7 +1627,7 @@ const TEMPLATES = [
   { id: "night_fatigue_coffee", description: "Suggest coffee break when driving 2+ hours between 22:00-02:00 with coffee shop nearby.", sessionScope: "activity", priority: 8, throttle: { cooldownMinutes: 30, maxTriggersPerDay: 1 }, output: { tone: "calm and warm", instructions: "Suggest the driver takes a coffee break. They have been driving a long time at night and there is a coffee shop nearby.", variables: [{ id: "coffee_shop", dataSource: "External Source" }] }, triggerExpression: { type: "GROUP", groupType: "AND", expressions: [{ type: "SINGLE", id: "trip_started", dataSource: "SmartDrive" }, { type: "SINGLE", id: "trip_duration", dataSource: "SmartDrive", conditions: [{ type: "Value", parameter: "duration", operator: ">=", value: 120 }] }, { type: "SINGLE", id: "hour_changed", dataSource: "DateTime", conditions: [{ type: "TimeRange", from: "22:00", to: "02:00" }] }] } },
   { id: "weekday_morning_greeting", description: "Greet driver at 9 AM on weekdays only.", sessionScope: "daily", priority: 7, throttle: { cooldownMinutes: 30, maxTriggersPerDay: 1 }, output: { tone: "energetic and friendly", instructions: "Wish the driver a good morning and a productive day ahead." }, triggerExpression: { type: "SINGLE", id: "hour_changed", dataSource: "Phone", conditions: [{ type: "Value", parameter: "hour", operator: "==", value: 9 }, { type: "Value", parameter: "day_of_week", operator: "in", value: ["MON", "TUE", "WED", "THU", "FRI"] }] } },
   { id: "harsh_braking_alert", description: "Alert after 3+ harsh braking events in current trip.", sessionScope: "activity", priority: 8, throttle: { cooldownMinutes: 60, maxTriggersPerDay: 2 }, output: { tone: "calm and concerned", instructions: "Remind the driver to brake gently and maintain safe following distance." }, triggerExpression: { type: "SINGLE", id: "driving_behaviour_event_braking", dataSource: "SmartDrive", conditions: [{ type: "EventCount", eventName: "driving_behaviour_event_braking", operator: ">=", value: 3 }] } },
-  { id: "high_stress_wellness", description: "Alert when driver stress is elevated from wellness measurement.", sessionScope: "daily", priority: 8, throttle: { cooldownMinutes: 60, maxTriggersPerDay: 3 }, output: { tone: "calm and caring", instructions: "The driver's stress level is elevated. Suggest a calming activity or break." }, triggerExpression: { type: "SINGLE", id: "wellness_measurement_taken", dataSource: "Wellness", conditions: [{ type: "Value", parameter: "normalizedStressIndex", operator: ">", value: 5 }] } },
+  { id: "high_stress_wellness", description: "Alert when driver stress is elevated from wellness measurement.", sessionScope: "daily", priority: 8, throttle: { cooldownMinutes: 60, maxTriggersPerDay: 3 }, output: { tone: "calm and caring", instructions: "The driver's stress level is elevated. Suggest a calming activity or break." }, triggerExpression: { type: "SINGLE", id: "wellness_measurement_taken", dataSource: "Wellness", conditions: [{ type: "Value", parameter: "stressIndex", operator: ">", value: 150 }] } },
   { id: "depot_departure_summary", description: "Summarize route when entering depot before 10 AM with pending jobs and route not yet completed.", sessionScope: "daily", priority: 7, throttle: { cooldownMinutes: 60, maxTriggersPerDay: 1 }, output: { tone: "professional and friendly", instructions: "Summarize the driver's route for today. They have arrived at the depot and their route is not yet completed.", variables: [{ id: "get_todays_jobs", dataSource: "MZONE" }] }, triggerExpression: { type: "GROUP", groupType: "AND", expressions: [{ type: "SINGLE", id: "poi_entry", dataSource: "POI", conditions: [{ type: "Value", parameter: "poi_type", operator: "==", value: "depot" }] }, { type: "SINGLE", id: "hour_changed", dataSource: "DateTime", conditions: [{ type: "Time", operator: "<=", value: "10:00" }] }, { type: "SINGLE", id: "get_todays_jobs", dataSource: "MZONE", conditions: [{ type: "Value", parameter: "RouteState", operator: "!=", value: "Completed" }] }] } },
   { id: "emergency_beacon", description: "Call dispatch and send API event when accident detected by beacon.", sessionScope: "global", priority: 10, throttle: { cooldownMinutes: 5, maxTriggersPerDay: 5 }, output: { tone: "calm and urgent", instructions: "Emergency detected. Ask if the driver is okay and inform them that dispatch is being contacted." }, actions: [{ type: "PhoneCall", number: { source: "static", value: "+31612345678" } }, { type: "APICall", id: "emergency_flow", dataSource: "MZONE" }], triggerExpression: { type: "SINGLE", id: "beacon_accident_detected", dataSource: "BLE" } },
   { id: "mhub_fuel_low_alert", description: "Alert when MHub fuel level drops below 10%.", sessionScope: "activity", priority: 8, throttle: { cooldownMinutes: 30, maxTriggersPerDay: 3 }, output: { tone: "calm and informative", instructions: "The vehicle fuel level is critically low. Suggest the driver refuels soon." }, triggerExpression: { type: "SINGLE", id: "mhub_fuel_level", dataSource: "MHub", conditions: [{ type: "Value", parameter: "fuel_level", operator: "<=", value: 10 }] } },
