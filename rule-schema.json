@@ -322,6 +322,11 @@
         "source": {
           "type": "string",
           "description": "Optional source identifier for filtering (e.g. 'MHUB', 'Beacon' for BLE)."
+        },
+        "eventName": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional. Restricts the lookup to one event name within the data source. Without it the engine takes the newest event carrying `parameter`, whichever event that was - so a parameter several events share (Mojo's `reason_for_skipping` on exercise_skipped and session_abandoned, `week` and `session_id` on all three session events) resolves by arrival order."
         }
       },
       "additionalProperties": false

@@ -1084,6 +1084,19 @@ function addCondition(list, dataSource, data = null, triggerConfig = null, filte
 }
 
 /**
+ * Datalist of the event names a data source can emit, for the free-text eventName
+ * inputs on EventCount and Aggregate. Returns null when the source has no fixed
+ * event list (UserCommand, API sources).
+ */
+function buildEventNameDatalist(listId, dataSource) {
+  const ids = TRIGGER_IDS[dataSource] || [];
+  if (ids.length === 0) return null;
+  const list = h('datalist', { id: listId });
+  for (const id of ids) list.append(h('option', { value: id }, id));
+  return list;
+}
+
+/**
  * Renders the appropriate fields for a condition type.
  */
 function renderConditionFields(container, type, dataSource, data = null, triggerConfig = null, filterFieldsOverride = null) {
@@ -1262,6 +1275,24 @@ function renderConditionFields(container, type, dataSource, data = null, trigger
       opSelect.addEventListener('change', () => renderValueInput(opSelect.value));
       renderValueInput(opSelect.value);
 
+      // Event name narrowing — for data sources whose events share attribute
+      // names. Without it the engine takes the newest event carrying the
+      // parameter, whichever milestone that was.
+      const showEventName = VALUE_EVENT_NAME_SOURCES.has(dataSource);
+      const eventNameSelect = createSelect(
+        [{ value: '', label: 'Any event (newest match wins)' }].concat(
+          (TRIGGER_IDS[dataSource] || []).map(id => ({ value: id, label: id }))
+        ),
+        { onInput: 'onFormChange()' }
+      );
+      eventNameSelect.dataset.field = 'eventName';
+      if (data?.eventName) eventNameSelect.value = data.eventName;
+      const eventNameField = createField(
+        'Event Name', eventNameSelect,
+        'Optional. Restricts the lookup to one event \u2014 needed when several events carry the same parameter.'
+      );
+      if (!showEventName) eventNameField.classList.add('hidden');
+
       // Source field — only show for BLE data source
       const showSource = dataSource === 'BLE' && !triggerConfig?.hideSource;
       const sourceInput = h('input', { type: 'text', placeholder: 'e.g. MHUB (optional)', onInput: 'onFormChange()' });
@@ -1276,6 +1307,7 @@ function renderConditionFields(container, type, dataSource, data = null, trigger
           createField('Operator', opSelect)
         ),
         valueContainer,
+        eventNameField,
         sourceField
       );
 
@@ -1384,6 +1416,9 @@ function renderConditionFields(container, type, dataSource, data = null, trigger
       } else if (hasLockedEventName) {
         enInput.value = triggerConfig.defaultEventName;
       }
+      const ecNameListId = uid();
+      const ecNameList = buildEventNameDatalist(ecNameListId, dataSource);
+      if (ecNameList && !hasLockedEventName) enInput.setAttribute('list', ecNameListId);
 
       const availableOps = triggerConfig?.validOperators || OPERATORS.filter(o => o !== 'in');
       const opSelect = createSelect(availableOps, { onInput: 'onFormChange()' });
@@ -1403,7 +1438,7 @@ function renderConditionFields(container, type, dataSource, data = null, trigger
         ));
       }
       elements.push(
-        createField('Event Name', enInput),
+        createField('Event Name', h('span', {}, enInput, ecNameList)),
         h('div', { className: 'form-grid' },
           createField('Operator', opSelect),
           createField('Count Threshold', valInput)
@@ -1435,6 +1470,9 @@ function renderConditionFields(container, type, dataSource, data = null, trigger
       const enInput = h('input', { type: 'text', placeholder: 'e.g. session_completed', onInput: 'onFormChange()' });
       enInput.dataset.field = 'eventName';
       if (data?.eventName) enInput.value = data.eventName;
+      const agNameListId = uid();
+      const agNameList = buildEventNameDatalist(agNameListId, dataSource);
+      if (agNameList) enInput.setAttribute('list', agNameListId);
 
       const opSelect = createSelect(AGGREGATE_OPS, { onInput: 'onFormChange()' });
       opSelect.dataset.field = 'op';
@@ -1443,6 +1481,13 @@ function renderConditionFields(container, type, dataSource, data = null, trigger
       const fieldInput = h('input', { type: 'text', placeholder: 'e.g. average_rom', onInput: 'onFormChange()' });
       fieldInput.dataset.field = 'field';
       if (data?.field) fieldInput.value = data.field;
+      const agFieldListId = uid();
+      const agFieldList = h('datalist', { id: agFieldListId });
+      for (const prm of (PARAMETERS[dataSource] || [])) {
+        if (typeof prm === 'string' || !['int', 'double'].includes(prm.type)) continue;
+        agFieldList.append(h('option', { value: prm.id, label: prm.label || prm.id }, prm.label || prm.id));
+      }
+      if (agFieldList.children.length > 0) fieldInput.setAttribute('list', agFieldListId);
 
       const cmpSelect = createSelect(NUMERIC_OPERATORS, { onInput: 'onFormChange()' });
       cmpSelect.dataset.field = 'operator';
@@ -1462,13 +1507,13 @@ function renderConditionFields(container, type, dataSource, data = null, trigger
       scopeSelect.value = data?.scope || '';
 
       // count reduces events, not a field value, so hide Field when it is selected.
-      const fieldRow = createField('Field', fieldInput, "Numeric attribute to reduce. Not used by 'count'.");
+      const fieldRow = createField('Field', h('span', {}, fieldInput, agFieldList), "Numeric attribute to reduce. Not used by 'count'.");
       const syncFieldRow = () => { fieldRow.style.display = opSelect.value === 'count' ? 'none' : ''; };
       opSelect.addEventListener('change', syncFieldRow);
       syncFieldRow();
 
       container.append(
-        createField('Event Name', enInput),
+        createField('Event Name', h('span', {}, enInput, agNameList)),
         h('div', { className: 'form-grid' },
           createField('Reducer', opSelect),
           fieldRow
@@ -2175,6 +2220,9 @@ function buildSingleConditionJSON(container, type) {
         cond.value = parseConditionValue(valueEl);
       }
 
+      const valueEventName = fieldVal(container, 'eventName');
+      if (valueEventName) cond.eventName = valueEventName;
+
       const source = fieldVal(container, 'source');
       if (source) cond.source = source;
       break;
@@ -2703,6 +2751,9 @@ function validateRule(jsonArray) {
     // Trigger ID vs data source warnings
     validateTriggerDataSource(rule.triggerExpression, warnings);
 
+    // Mojo parameters that are ambiguous or no longer exist
+    validateMojoConditions(rule.triggerExpression, warnings, prefix);
+
     // Required fields on every SINGLE expression (blocks publish)
     validateTriggerFields(rule.triggerExpression, errors, prefix);
 
@@ -2742,6 +2793,33 @@ function validateTriggerDataSource(expr, warnings) {
   }
   if (expr.type === 'GROUP' && expr.expressions) {
     expr.expressions.forEach(e => validateTriggerDataSource(e, warnings));
+  }
+}
+
+/**
+ * Mojo-specific condition warnings.
+ *
+ * `Condition.Value` searches the whole data source and takes the newest event
+ * carrying the parameter, so a parameter shared by several Mojo events resolves
+ * by arrival order unless the condition names one. And parameters dropped by the
+ * event split match nothing at all — the condition evaluates false forever
+ * rather than failing loudly.
+ */
+function validateMojoConditions(expr, warnings, prefix) {
+  if (!expr) return;
+  if (expr.type === 'SINGLE' && expr.dataSource === 'Mojo' && expr.conditions) {
+    for (const cond of expr.conditions) {
+      if (cond.type !== 'Value' || !cond.parameter) continue;
+      const removed = REMOVED_PARAMS[cond.parameter];
+      if (removed) {
+        warnings.push(`${prefix}"${cond.parameter}" no longer exists on any Mojo event, so this condition can never match. ${removed}`);
+      } else if (MOJO_AMBIGUOUS_PARAMS.has(cond.parameter) && !cond.eventName) {
+        warnings.push(`${prefix}"${cond.parameter}" is carried by more than one Mojo event — without "eventName" the newest one wins, whichever milestone it was`);
+      }
+    }
+  }
+  if (expr.type === 'GROUP' && expr.expressions) {
+    expr.expressions.forEach(e => validateMojoConditions(e, warnings, prefix));
   }
 }
 

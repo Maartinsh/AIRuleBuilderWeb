@@ -69,8 +69,16 @@ const TRIGGER_IDS = {
     'google_nearby_parking', 'google_nearby_electric_vehicle_charging_station',
     'google_nearby_car_wash', 'google_nearby_car_repair', 'google_nearby_convenience_store'
   ],
-  // Mojo on-device events, submitted by the Mojo app via engine.submit().
-  Mojo: ['exercise_completed', 'session_completed', 'patient_info'],
+  // Mojo on-device events, submitted by the Mojo app via engine.submit(). Seven
+  // milestones, in the order a patient hits them. Finishing and not finishing are
+  // separate names rather than one event with a status flag — EventCount and
+  // Aggregate count by name and cannot filter on a parameter, so "skipped 3
+  // exercises this week" is only expressible this way.
+  Mojo: [
+    'app_open', 'patient_info',
+    'session_start', 'session_completed', 'session_abandoned',
+    'exercise_completed', 'exercise_skipped'
+  ],
   // Mojo portal REST API. These never fire on their own — a MojoPortal branch
   // must sit in an AND group with an event trigger (a Mojo event, or
   // DateTime:day_changed for a morning briefing) or the rule can never match.
@@ -104,6 +112,111 @@ const WEATHER_PARAMS = [
   { id: 'visibility', type: 'double', label: 'visibility' },
   { id: 'precipitation', type: 'double', label: 'precipitation' }
 ];
+
+/**
+ * Mojo on-device event attributes, grouped by the event that carries them —
+ * mirroring EventParameters.ExerciseInfo / TherapySessionInfo / PatientInfo in
+ * EventIdentifiers.kt. Attached per-trigger via
+ * TRIGGER_CONDITION_CONFIG[...].validParameters so `session_start` never offers
+ * result fields it cannot carry.
+ *
+ * Nullable fields are omitted by the SDK rather than sent as null, and a
+ * condition on a missing parameter evaluates false — so a rep-based exercise
+ * carries no *_duration_seconds and vice-versa.
+ *
+ * There is no `is_completed` on any Mojo event: finishing and not finishing are
+ * separate event names, because EventCount and Aggregate count by name and
+ * cannot filter on a parameter.
+ */
+const MOJO_EXERCISE_METRICS = [
+  { id: 'planned_repetitions', type: 'int', label: 'planned reps — rep-based exercises only' },
+  { id: 'actual_repetitions', type: 'int', label: 'actual reps — rep-based exercises only' },
+  { id: 'planned_duration_seconds', type: 'int', label: 'planned duration — timed exercises only' },
+  { id: 'actual_duration_seconds', type: 'int', label: 'actual duration — timed exercises only' },
+  { id: 'rom_score', type: 'int', label: 'range-of-motion score', min: 0, max: 100, unit: '' },
+  { id: 'time_score', type: 'int', label: 'timing score', min: 0, max: 100, unit: '' },
+  { id: 'duration_seconds', type: 'int', label: 'exercise wall time in seconds' }
+];
+
+const MOJO_SESSION_SCORES = [
+  { id: 'pain_score', type: 'int', label: 'reported pain', min: 0, max: 7, unit: '' },
+  { id: 'distress_score', type: 'int', label: 'reported distress', min: 0, max: 7, unit: '' },
+  { id: 'average_rom', type: 'int', label: 'session average ROM', min: 0, max: 100, unit: '' },
+  { id: 'performance', type: 'int', label: 'session performance', min: 0, max: 100, unit: '' }
+];
+
+/** Re-labels a shared parameter as one that only appears when the patient quit part-way. */
+const _mojoPartWayOnly = (p) => ({ ...p, label: `${p.label} — only when quit part-way` });
+
+const MOJO_EXERCISE_COMPLETED_PARAMS = [
+  { id: 'patient_exercise_id', type: 'int', label: 'portal exercise id' },
+  ...MOJO_EXERCISE_METRICS
+];
+
+const MOJO_EXERCISE_SKIPPED_PARAMS = [
+  { id: 'patient_exercise_id', type: 'int', label: 'portal exercise id' },
+  { id: 'reason_for_skipping', type: 'string', label: 'skip reason slug (e.g. too_painful, no_time)' },
+  ...MOJO_EXERCISE_METRICS.map(_mojoPartWayOnly)
+];
+
+const MOJO_SESSION_START_PARAMS = [
+  { id: 'session_id', type: 'int', label: 'therapy session id — omitted until allocated' },
+  { id: 'week', type: 'int', label: 'therapy programme week' },
+  { id: 'exercise_count', type: 'int', label: 'planned exercises in the session' }
+];
+
+const MOJO_SESSION_COMPLETED_PARAMS = [
+  { id: 'session_id', type: 'int', label: 'therapy session id' },
+  { id: 'week', type: 'int', label: 'therapy programme week' },
+  ...MOJO_SESSION_SCORES,
+  { id: 'note', type: 'string', label: 'free-text session note (prompt context)' },
+  { id: 'duration_seconds', type: 'int', label: 'session length in seconds' },
+  { id: 'exercise_count', type: 'int', label: 'exercises in the session' },
+  { id: 'completed_count', type: 'int', label: 'exercises actually completed' }
+];
+
+// Declined outright and entered-then-quit share this one event name. The presence
+// of `duration_seconds` is the only tell between them — a declined session carries
+// no numbers at all, so those keys are absent rather than zero.
+const MOJO_SESSION_ABANDONED_PARAMS = [
+  { id: 'session_id', type: 'int', label: 'therapy session id — omitted when never allocated' },
+  { id: 'week', type: 'int', label: 'therapy programme week' },
+  { id: 'reason_for_skipping', type: 'string', label: 'skip reason slug (e.g. too_painful, no_time, too_tired)' },
+  { id: 'duration_seconds', type: 'int', label: 'session length — present only when quit part-way, absent when declined' },
+  { id: 'completed_count', type: 'int', label: 'exercises finished before quitting — only when quit part-way' },
+  ...MOJO_SESSION_SCORES.map(_mojoPartWayOnly)
+];
+
+const MOJO_PATIENT_INFO_PARAMS = [
+  { id: 'id', type: 'int', label: 'patient id' },
+  { id: 'given_name', type: 'string', label: 'patient given name' },
+  { id: 'full_name', type: 'string', label: 'patient full name (fallback)' },
+  { id: 'therapy_duration', type: 'int', label: 'programme length' },
+  { id: 'sessions_per_week', type: 'int', label: 'prescribed sessions per week' },
+  { id: 'has_wellness_licence', type: 'bool', label: 'wellness features licensed? (true/false)' },
+  { id: 'current_streak', type: 'int', label: 'current adherence streak' },
+  { id: 'longest_streak', type: 'int', label: 'longest adherence streak' },
+  { id: 'current_missed_streak', type: 'int', label: 'consecutive missed days — re-engagement trigger' }
+];
+
+/**
+ * Flat union used wherever a per-event list is unavailable (the datalist hints,
+ * and `app_open`, which carries no attributes of its own). The unsuffixed label
+ * wins for parameters that several events share.
+ */
+const MOJO_ALL_PARAMS = (() => {
+  const byId = new Map();
+  const all = [
+    ...MOJO_SESSION_COMPLETED_PARAMS,
+    ...MOJO_EXERCISE_COMPLETED_PARAMS,
+    ...MOJO_PATIENT_INFO_PARAMS,
+    ...MOJO_SESSION_START_PARAMS,
+    ...MOJO_SESSION_ABANDONED_PARAMS,
+    ...MOJO_EXERCISE_SKIPPED_PARAMS
+  ];
+  for (const p of all) if (!byId.has(p.id)) byId.set(p.id, p);
+  return [...byId.values()];
+})();
 
 const PARAMETERS = {
   SmartDrive: ['speed', 'duration', 'distance', 'duration_millis'],
@@ -197,44 +310,9 @@ const PARAMETERS = {
     ...GOOGLE_PLACES_PARAMS,
     ...WEATHER_PARAMS
   ],
-  // Mojo on-device event attributes. Ranges mirror EventParameters.* in
-  // EventIdentifiers.kt. Nullable fields are omitted by the SDK rather than sent
-  // as null, and a condition on a missing parameter evaluates false — so e.g. a
-  // rep-based exercise carries no *_duration_seconds and vice-versa.
-  Mojo: [
-    // exercise_completed
-    { id: 'patient_exercise_id', type: 'int', label: 'patient exercise id' },
-    { id: 'reason_for_skipping', type: 'string', label: 'skip reason slug (e.g. too_painful, no_time)' },
-    { id: 'planned_repetitions', type: 'int', label: 'planned reps — rep-based exercises only' },
-    { id: 'actual_repetitions', type: 'int', label: 'actual reps — rep-based exercises only' },
-    { id: 'planned_duration_seconds', type: 'int', label: 'planned duration — timed exercises only' },
-    { id: 'actual_duration_seconds', type: 'int', label: 'actual duration — timed exercises only' },
-    { id: 'rom_score', type: 'int', label: 'range-of-motion score', min: 0, max: 100, unit: '' },
-    { id: 'time_score', type: 'int', label: 'timing score', min: 0, max: 100, unit: '' },
-    // session_completed
-    { id: 'session_id', type: 'int', label: 'therapy session id' },
-    { id: 'pain_score', type: 'int', label: 'reported pain', min: 0, max: 7, unit: '' },
-    { id: 'distress_score', type: 'int', label: 'reported distress', min: 0, max: 7, unit: '' },
-    { id: 'week', type: 'int', label: 'therapy programme week' },
-    { id: 'note', type: 'string', label: 'free-text session note (prompt context)' },
-    { id: 'average_rom', type: 'int', label: 'session average ROM', min: 0, max: 100, unit: '' },
-    { id: 'performance', type: 'int', label: 'session performance', min: 0, max: 100, unit: '' },
-    { id: 'exercise_count', type: 'int', label: 'exercises in the session' },
-    { id: 'completed_count', type: 'int', label: 'exercises actually completed' },
-    // patient_info
-    { id: 'id', type: 'int', label: 'patient id' },
-    { id: 'given_name', type: 'string', label: 'patient given name' },
-    { id: 'full_name', type: 'string', label: 'patient full name (fallback)' },
-    { id: 'therapy_duration', type: 'int', label: 'programme length' },
-    { id: 'sessions_per_week', type: 'int', label: 'prescribed sessions per week' },
-    { id: 'has_wellness_licence', type: 'bool', label: 'wellness features licensed? (true/false)' },
-    { id: 'current_streak', type: 'int', label: 'current adherence streak' },
-    { id: 'longest_streak', type: 'int', label: 'longest adherence streak' },
-    { id: 'current_missed_streak', type: 'int', label: 'consecutive missed sessions — re-engagement trigger' },
-    // shared by exercise_completed and session_completed
-    { id: 'is_completed', type: 'bool', label: 'completed? false = skipped (true/false)' },
-    { id: 'duration_seconds', type: 'int', label: 'duration in seconds' }
-  ],
+  // Mojo on-device event attributes — the union of the per-event lists above.
+  // Per-event narrowing happens through TRIGGER_CONDITION_CONFIG.validParameters.
+  Mojo: MOJO_ALL_PARAMS,
   // Mojo portal API response fields. Only engine-computed aggregates are listed —
   // conditions run against these, not against the raw portal payload.
   MojoPortal: [
@@ -425,6 +503,33 @@ const PRODUCT_TOPICS = {
 
 const OPERATORS = ['==', '!=', '<', '<=', '>', '>=', 'in'];
 const CONDITION_TYPES = ['Value', 'TimeRange', 'Time', 'Comparison', 'EventCount', 'RelativeTimeWindow', 'Aggregate'];
+/**
+ * Data sources where a Value condition offers the optional `eventName` narrowing
+ * field. Condition.Value searches the whole data source and takes the newest
+ * event carrying the parameter, so a source whose events share attribute names
+ * needs the selector whenever the rule means one specific milestone. Mojo forced
+ * it: `reason_for_skipping` sits on both exercise_skipped and session_abandoned,
+ * and `week` / `session_id` on all three session events.
+ */
+const VALUE_EVENT_NAME_SOURCES = new Set(['Mojo']);
+
+/**
+ * Most Mojo attributes appear on more than one event; these are the ones where
+ * that ambiguity changes what the rule means, because the events sharing them
+ * say opposite things. `reason_for_skipping` is on exercise_skipped and
+ * session_abandoned, `week` / `session_id` on all three session events, and
+ * `duration_seconds` on all four result events. A Value condition with no
+ * `eventName` resolves to whichever of them arrived last.
+ */
+const MOJO_AMBIGUOUS_PARAMS = new Set(['reason_for_skipping', 'week', 'session_id', 'duration_seconds']);
+
+/** Parameters removed from the engine, mapped to what replaced them. */
+const REMOVED_PARAMS = {
+  is_completed: 'Removed with the Mojo event split \u2014 the event name carries it now. Trigger on session_completed / exercise_completed, or session_abandoned / exercise_skipped.'
+};
+
+/** Condition types that mean something on a Mojo on-device blob event. */
+const MOJO_CONDITION_TYPES = ['Value', 'EventCount', 'Aggregate', 'TimeRange', 'Time'];
 const AGGREGATE_OPS = ['min', 'max', 'avg', 'sum', 'count'];
 const NUMERIC_OPERATORS = ['==', '!=', '<', '<=', '>', '>='];
 const STRING_OPERATORS = ['==', '!=', 'in', 'contains'];
@@ -964,6 +1069,54 @@ const TRIGGER_CONDITION_CONFIG = {
   google_nearby_car_repair: _googlePlacesConfig(),
   google_nearby_convenience_store: _googlePlacesConfig(),
 
+  // ── Mojo ──
+  // `app_open` is deliberately absent: it carries no attributes, so it lives in
+  // EVENT_ONLY_TRIGGERS instead and fires on occurrence alone.
+  // Comparison and RelativeTimeWindow are omitted throughout — both are API-response
+  // condition types and have nothing to read on an on-device blob event.
+  session_start: {
+    conditionRequired: false,
+    defaultConditionType: 'Value',
+    validConditionTypes: MOJO_CONDITION_TYPES,
+    validParameters: MOJO_SESSION_START_PARAMS,
+    hideSource: true
+  },
+  session_completed: {
+    conditionRequired: false,
+    defaultConditionType: 'Value',
+    validConditionTypes: MOJO_CONDITION_TYPES,
+    validParameters: MOJO_SESSION_COMPLETED_PARAMS,
+    hideSource: true
+  },
+  session_abandoned: {
+    conditionRequired: false,
+    defaultConditionType: 'Value',
+    validConditionTypes: MOJO_CONDITION_TYPES,
+    validParameters: MOJO_SESSION_ABANDONED_PARAMS,
+    hideSource: true
+  },
+  exercise_completed: {
+    conditionRequired: false,
+    defaultConditionType: 'Value',
+    validConditionTypes: MOJO_CONDITION_TYPES,
+    validParameters: MOJO_EXERCISE_COMPLETED_PARAMS,
+    hideSource: true
+  },
+  exercise_skipped: {
+    conditionRequired: false,
+    defaultConditionType: 'Value',
+    validConditionTypes: MOJO_CONDITION_TYPES,
+    validParameters: MOJO_EXERCISE_SKIPPED_PARAMS,
+    hideSource: true
+  },
+  patient_info: {
+    conditionRequired: false,
+    defaultConditionType: 'Value',
+    validConditionTypes: MOJO_CONDITION_TYPES,
+    validParameters: MOJO_PATIENT_INFO_PARAMS,
+    hideSource: true
+  },
+
   // ── Wellness ──
   wellness_measurement_taken: {
     conditionRequired: false,
@@ -1486,16 +1639,18 @@ const EVENT_VARIABLE_PARAMS = {
     { id: 'sdnn', label: 'Sdnn (sdnn)' },
   ],
   // One prompt variable resolves to exactly ONE event — the most recent one
-  // carrying the attribute. A session of five exercises emits five separate
-  // exercise_completed events, so a `rom_score` variable renders only the last
-  // exercise's score, silently. To reason over a whole session, prefer the
-  // MojoPortal therapy_sessions array variables.
+  // carrying the attribute, whichever event name that was. A session of five
+  // exercises emits five separate exercise_completed / exercise_skipped events,
+  // so a `rom_score` variable renders only the last exercise's score, silently.
+  // To reason over a whole session, prefer the MojoPortal therapy_sessions array
+  // variables.
   Mojo: [
     { id: 'given_name', label: 'patient given name' },
     { id: 'current_streak', label: 'current adherence streak' },
     { id: 'longest_streak', label: 'longest adherence streak' },
     { id: 'current_missed_streak', label: 'consecutive missed sessions' },
     { id: 'sessions_per_week', label: 'prescribed sessions per week' },
+    { id: 'therapy_duration', label: 'programme length' },
     { id: 'average_rom', label: 'session average ROM (session_completed)' },
     { id: 'pain_score', label: 'reported pain 0-7 (session_completed)' },
     { id: 'distress_score', label: 'reported distress 0-7 (session_completed)' },
@@ -1506,7 +1661,7 @@ const EVENT_VARIABLE_PARAMS = {
     { id: 'completed_count', label: 'exercises completed (session_completed)' },
     { id: 'exercises', label: 'exercise results from the session (session_completed)' },
     { id: 'rom_score', label: 'exercise ROM score — latest exercise only' },
-    { id: 'reason_for_skipping', label: 'skip reason — latest exercise only' },
+    { id: 'reason_for_skipping', label: 'skip reason — from exercise_skipped or session_abandoned, latest wins' },
   ]
 };
 
@@ -1546,6 +1701,10 @@ const EVENT_ONLY_TRIGGERS = new Set([
   'job_details', 'job_details_updated', 'updatedJobDetails',
   'dynamic_changes_to_the_route', 'job_route_in_progress',
   'battery_low',
+  // Mojo — app_open carries no attributes at all; it exists so "the patient
+  // opened the app" is countable on its own. Pair it with maxTriggersPerDay: 1,
+  // or the event sits in the daily buffer and re-satisfies all day.
+  'app_open',
   // MHub flag events — fire on state-change, no condition needed
   'mhub_trip_started', 'mhub_trip_ended',
   'mhub_ignition_on', 'mhub_ignition_off',
@@ -1585,9 +1744,10 @@ const VARIABLE_SCOPE = {
   MZONE: 'any',
   GZONE: 'any',
   'External Source': 'any',
-  // No Mojo event is activity-only. exercise_completed and session_completed are
-  // routed to the daily scope and patient_info to global, but routing is a
-  // block-list, so all three also reach global and its unlimited retention.
+  // No Mojo event is activity-only. The milestone events are routed to the daily
+  // scope and patient_info to global, but routing is a block-list, so every Mojo
+  // event also reaches global and its unlimited retention — which is what the
+  // adherence `count` aggregates over session_abandoned / exercise_skipped read.
   Mojo: 'any',
   MojoPortal: 'any'
 };
