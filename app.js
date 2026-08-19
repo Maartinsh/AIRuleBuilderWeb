@@ -1242,6 +1242,12 @@ function renderConditionFields(container, type, dataSource, data = null, trigger
           const label = fieldInfo ? `Value${typeHint}${unitSuffix}` : 'Value';
           valueContainer.append(h('label', {}, label), valInput);
 
+          // Unit note for triggers whose unit is not the obvious one (e.g. SmartDrive
+          // trip_distance is whole km, not metres). The placeholder alone gets cut off.
+          if (triggerConfig?.valueNote) {
+            valueContainer.append(h('div', { className: 'help-text' }, triggerConfig.valueNote));
+          }
+
           // Threshold legend + quick-pick chips. Ranges mirror the mobile
           // measurement screen's Low/Normal/High labels so rule writers can
           // pick "Extreme" instead of guessing a number.

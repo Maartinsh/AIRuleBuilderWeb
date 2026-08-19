@@ -307,11 +307,11 @@
         "parameter": {
           "type": "string",
           "minLength": 1,
-          "description": "Event parameter name to compare (e.g. 'speed', 'hour', 'poi_type')."
+          "description": "Event parameter name to compare (e.g. 'speed', 'hour', 'poi_type'). The unit of `value` is whatever the source emits — the engine compares raw numbers and never converts. SmartDrive: `speed` km/h, `duration` seconds, `distance` WHOLE KILOMETRES (truncated to an integer, so anything under 1 km arrives as 0), `duration_millis` milliseconds. MHub: `distance` metres, `duration` and `stationary_time` seconds, `speed`/`max_speed` km/h, `brake_force`/`acceleration_force` whole km/h/s (not g), `rpm`/`max_rpm` rpm in steps of 100, `fuel_level` %, temperatures °C, `voltage` V. POI `radius` metres. Note SmartDrive and MHub disagree on `distance` — km vs metres. Mixing these up is silent: the condition just stays false. See JSON_RULE_STRUCTURE.md → Parameters by Data Source."
         },
         "operator": { "$ref": "#/definitions/operator" },
         "value": {
-          "description": "Comparison value. String/number/boolean for most operators, array of strings for 'in'.",
+          "description": "Comparison value, in the unit the parameter is emitted in — see `parameter`. String/number/boolean for most operators, array of strings for 'in'.",
           "oneOf": [
             { "type": "string", "minLength": 1 },
             { "type": "number" },

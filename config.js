@@ -575,7 +575,8 @@ const TRIGGER_CONDITION_CONFIG = {
     parameterLocked: true,
     validConditionTypes: ['Value'],
     validOperators: NUMERIC_OPERATORS,
-    valueHint: 'Duration in minutes (e.g. 120)',
+    valueHint: 'Duration in seconds (e.g. 1800 = 30 min)',
+    valueNote: 'Seconds elapsed since the trip started — not minutes. 1800 = 30 min, 3600 = 1 h. Sampled every 30 s.',
     hideSource: true
   },
   trip_distance: {
@@ -585,7 +586,8 @@ const TRIGGER_CONDITION_CONFIG = {
     parameterLocked: true,
     validConditionTypes: ['Value'],
     validOperators: NUMERIC_OPERATORS,
-    valueHint: 'Distance in meters (e.g. 5000)',
+    valueHint: 'Distance in whole km (e.g. 5)',
+    valueNote: 'Whole kilometres, truncated — not metres. Anything under 1 km arrives as 0, so 5 means 5 km. (MHub trip_distance is metres; these two differ.)',
     hideSource: true
   },
   distracted_phone_use: {
@@ -715,6 +717,7 @@ const TRIGGER_CONDITION_CONFIG = {
     validConditionTypes: ['Value'],
     validOperators: NUMERIC_OPERATORS,
     valueHint: 'Distance in meters (e.g. 50000)',
+    valueNote: 'Metres — unlike SmartDrive trip_distance, which is whole kilometres.',
     hideSource: true
   },
   mhub_trip_duration: {
@@ -724,7 +727,8 @@ const TRIGGER_CONDITION_CONFIG = {
     parameterLocked: true,
     validConditionTypes: ['Value'],
     validOperators: NUMERIC_OPERATORS,
-    valueHint: 'Duration in minutes (e.g. 120)',
+    valueHint: 'Duration in seconds (e.g. 1800 = 30 min)',
+    valueNote: 'Seconds — not minutes. 1800 = 30 min, 3600 = 1 h.',
     hideSource: true
   },
   mhub_trip_max_speed: {
@@ -764,7 +768,8 @@ const TRIGGER_CONDITION_CONFIG = {
     parameterLocked: true,
     validConditionTypes: ['Value'],
     validOperators: NUMERIC_OPERATORS,
-    valueHint: 'Brake force in g (e.g. 0.4)',
+    valueHint: 'Brake force in km/h/s (e.g. 12)',
+    valueNote: 'km/h/s, whole numbers — not g. The device sends one byte at scale 1, so a threshold like 0.4 matches every braking event.',
     hideSource: true
   },
   mhub_acceleration_force: {
@@ -774,7 +779,8 @@ const TRIGGER_CONDITION_CONFIG = {
     parameterLocked: true,
     validConditionTypes: ['Value'],
     validOperators: NUMERIC_OPERATORS,
-    valueHint: 'Acceleration force in g (e.g. 0.3)',
+    valueHint: 'Acceleration force in km/h/s (e.g. 8)',
+    valueNote: 'km/h/s, whole numbers — not g. The device sends one byte at scale 1, so a threshold like 0.3 matches every acceleration event.',
     hideSource: true
   },
   // MHub location — no numeric condition needed
@@ -1588,7 +1594,7 @@ const EVENT_VARIABLE_PARAMS = {
   SmartDrive: [
     { id: 'speed', label: 'vehicle speed (km/h)' },
     { id: 'duration', label: 'trip duration (seconds)' },
-    { id: 'distance', label: 'distance traveled (meters)' },
+    { id: 'distance', label: 'distance traveled (whole km)' },
     { id: 'current_location', label: 'current GPS location' },
     { id: 'duration_millis', label: 'distraction duration (ms)' },
   ],
@@ -1609,8 +1615,8 @@ const EVENT_VARIABLE_PARAMS = {
     { id: 'stationary_time', label: 'stationary time (seconds)' },
     { id: 'latitude', label: 'current latitude' },
     { id: 'longitude', label: 'current longitude' },
-    { id: 'brake_force', label: 'brake force (g)' },
-    { id: 'acceleration_force', label: 'acceleration force (g)' },
+    { id: 'brake_force', label: 'brake force (km/h/s)' },
+    { id: 'acceleration_force', label: 'acceleration force (km/h/s)' },
   ],
   POI: [
     { id: 'poi_id', label: 'POI identifier' },
