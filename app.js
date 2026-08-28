@@ -1180,6 +1180,7 @@ function renderConditionFields(container, type, dataSource, data = null, trigger
           const hiddenInput = h('input', { type: 'hidden' });
           hiddenInput.dataset.field = 'value';
           hiddenInput.dataset.valueType = 'array';
+          hiddenInput.dataset.paramType = 'string';
           hiddenInput.value = [...selected].join(', ');
 
           const chipsRow = h('div', { className: 'day-chips' });
@@ -1200,6 +1201,7 @@ function renderConditionFields(container, type, dataSource, data = null, trigger
           const hiddenInput = h('input', { type: 'hidden' });
           hiddenInput.dataset.field = 'value';
           hiddenInput.dataset.valueType = 'array';
+          hiddenInput.dataset.paramType = 'string';
           hiddenInput.value = fieldInfo.values.filter(v => selected.has(v)).join(', ');
 
           const chipsRow = h('div', { className: 'day-chips' });
@@ -1215,11 +1217,23 @@ function renderConditionFields(container, type, dataSource, data = null, trigger
           }
           valueContainer.append(h('label', {}, `Values${typeHint}`), chipsRow, hiddenInput);
         } else if (op === 'in') {
-          const tagInput = h('input', { type: 'text', placeholder: 'Comma-separated values', onInput: 'onFormChange()' });
+          const tagInput = h('input', {
+            type: 'text',
+            placeholder: isNumeric ? 'Comma-separated numbers, e.g. 4, 8, 12' : 'Comma-separated values',
+            onInput: 'onFormChange()'
+          });
           tagInput.dataset.field = 'value';
           tagInput.dataset.valueType = 'array';
+          tagInput.dataset.paramType = fieldInfo?.type || '';
           if (data?.value && Array.isArray(data.value)) tagInput.value = data.value.join(', ');
-          valueContainer.append(h('label', {}, 'Values (comma-separated)'), tagInput);
+          const tagLabel = h('label', {}, `Values${typeHint} `);
+          tagLabel.append(h('span', { className: 'label-hint' }, '(comma-separated)'));
+          valueContainer.append(tagLabel, tagInput);
+          valueContainer.append(h('div', { className: 'help-text' },
+            isNumeric ? 'Exported as JSON numbers, matching how the parameter is emitted.'
+              : (isEnum || fieldInfo?.type === 'string') ? 'Exported as JSON strings.'
+              : 'Exported as JSON strings unless every entry is a number.'
+          ));
         } else if (isEnum) {
           // Equality / inequality against a fixed set of strings — use a <select>
           const options = [{ value: '', label: '— select value —' }].concat(
@@ -1234,7 +1248,8 @@ function renderConditionFields(container, type, dataSource, data = null, trigger
           const inputType = isNumeric ? 'number' : 'text';
           const valInput = h('input', { type: inputType, placeholder: baseHint, onInput: 'onFormChange()' });
           valInput.dataset.field = 'value';
-          valInput.dataset.valueType = isNumeric ? 'auto' : isBool ? 'bool' : 'auto';
+          valInput.dataset.valueType = 'scalar';
+          valInput.dataset.paramType = fieldInfo?.type || '';
           if (isNumeric && fieldInfo?.min !== undefined) valInput.min = String(fieldInfo.min);
           if (isNumeric && fieldInfo?.max !== undefined) valInput.max = String(fieldInfo.max);
           if (data?.value !== undefined && !Array.isArray(data.value)) valInput.value = String(data.value);
@@ -2283,14 +2298,58 @@ function buildSingleConditionJSON(container, type) {
 }
 
 /**
+ * Coerces one typed-in token to the JSON type its parameter is emitted in.
+ *
+ * `paramType` is the type config.js declares for the parameter; an unrecognised parameter falls
+ * back to detecting the type from what was typed, which is what scalar values have always done.
+ */
+function coerceConditionScalar(raw, paramType) {
+  const text = String(raw).trim();
+  if (text === '') return '';
+
+  if (paramType === 'int' || paramType === 'double') {
+    const num = Number(text);
+    return Number.isFinite(num) ? num : text;
+  }
+  if (paramType === 'bool') {
+    if (text === 'true') return true;
+    if (text === 'false') return false;
+    return text;
+  }
+  if (paramType === 'enum' || paramType === 'string') {
+    return text;
+  }
+
+  if (text === 'true') return true;
+  if (text === 'false') return false;
+  const num = Number(text);
+  return Number.isFinite(num) ? num : text;
+}
+
+/**
  * Parses a condition value based on its type annotation.
+ *
+ * Scalars auto-detected numbers while `in` sets were always split into strings, so one builder
+ * emitted `"value": 4` and `"value": ["4"]` for the same parameter. Both go through
+ * coerceConditionScalar now.
  */
 function parseConditionValue(el) {
   const raw = el.value;
   const vtype = el.dataset.valueType;
+  const paramType = el.dataset.paramType || '';
 
   if (vtype === 'array') {
-    return raw.split(',').map(s => s.trim()).filter(Boolean);
+    const items = raw.split(',').map(s => s.trim()).filter(Boolean)
+      .map(s => coerceConditionScalar(s, paramType));
+
+    // One parameter arrives as one type, so a set of mixed types can never match on every
+    // element. With no declared type, all-or-nothing detection keeps the set homogeneous:
+    // "4, 8, 12" becomes numbers, "MON, TUE" strings, and "4, MON" stays strings rather than
+    // silently splitting into both.
+    if (!paramType && items.some(i => typeof i === 'number') && !items.every(i => typeof i === 'number')) {
+      return items.map(String);
+    }
+    return items;
   }
   if (vtype === 'integer') {
     return parseInt(raw) || 0;
@@ -2298,12 +2357,7 @@ function parseConditionValue(el) {
   if (vtype === 'string') {
     return raw;
   }
-  // Auto-detect
-  if (raw === 'true') return true;
-  if (raw === 'false') return false;
-  const num = Number(raw);
-  if (raw !== '' && !isNaN(num)) return num;
-  return raw;
+  return coerceConditionScalar(raw, paramType);
 }
 
 /**
@@ -2771,6 +2825,9 @@ function validateRule(jsonArray) {
 
     // Condition field content validation (format, required fields per type)
     validateConditionFields(rule.triggerExpression, errors, prefix);
+
+    // Value shape against the operator reading it, and value type against the parameter
+    validateValueConditionTypes(rule.triggerExpression, errors, warnings, prefix);
   }
 
   return {
@@ -2778,6 +2835,52 @@ function validateRule(jsonArray) {
     errors,
     warnings
   };
+}
+
+/**
+ * Mirrors RulesValidator.validateValueConditionShapes so the panel says what CI will.
+ *
+ * The shape is an error: 'in' has no set to search without an array, and no other operator can
+ * compare against one. The type is only a warning - a numeral in quotes may genuinely be a string
+ * identifier, and the engine matches it either way.
+ */
+function validateValueConditionTypes(expr, errors, warnings, prefix) {
+  if (!expr) return;
+
+  if (expr.type === 'GROUP' && expr.expressions) {
+    expr.expressions.forEach(e => validateValueConditionTypes(e, errors, warnings, prefix));
+    return;
+  }
+
+  const quotedNumber = (v) => typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v));
+
+  for (const cond of expr.conditions || []) {
+    if (cond.type !== 'Value' || !cond.operator || cond.value === undefined) continue;
+    const where = `${prefix}"${cond.parameter}"`;
+
+    if (cond.operator === 'in') {
+      if (!Array.isArray(cond.value)) {
+        errors.push(`${where}: "in" needs a list of values, not a single one`);
+        continue;
+      }
+      const types = new Set(cond.value.map(v => typeof v));
+      if (types.size > 1) {
+        warnings.push(`${where}: the "in" list mixes ${[...types].join(' and ')} values \u2014 one parameter arrives as one type, so part of the list can never match`);
+      } else if (cond.value.some(quotedNumber)) {
+        warnings.push(`${where}: the "in" list holds quoted numbers \u2014 a numeric parameter arrives as a JSON number, so drop the quotes`);
+      }
+      continue;
+    }
+
+    if (Array.isArray(cond.value)) {
+      errors.push(`${where}: "${cond.operator}" cannot compare against a list \u2014 only "in" takes one`);
+      continue;
+    }
+
+    if (quotedNumber(cond.value)) {
+      warnings.push(`${where}: the value is a quoted number \u2014 a numeric parameter arrives as a JSON number, so drop the quotes`);
+    }
+  }
 }
 
 function collectTriggerIds(expr) {

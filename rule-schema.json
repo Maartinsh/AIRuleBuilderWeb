@@ -1,8 +1,8 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "rule-schema.json",
+  "$id": "urn:scopetech:aicompanionengine:rule-schema",
   "title": "AICompanionEngine Rule Configuration",
-  "description": "Formal JSON Schema for AICompanionEngine rule JSON. Single source of truth for rule creation, validation, and form generation. Engine version 0.0.49. See JSON_RULE_STRUCTURE.md for full documentation.",
+  "description": "Formal JSON Schema for AICompanionEngine rule JSON. Single source of truth for rule creation, validation, and form generation. The engine and contract versions this copy belongs to are in contract/versions.json; the distributable copy also carries them as x-engineVersion / x-schemaVersion. See JSON_RULE_STRUCTURE.md for full documentation.",
   "oneOf": [
     { "$ref": "#/definitions/rulesArray" },
     { "$ref": "#/definitions/rulesEnvelope" }
@@ -22,6 +22,11 @@
       "description": "Envelope document shape: an optional topics registry plus the rules array.",
       "required": ["rules"],
       "properties": {
+        "schemaVersion": {
+          "type": "string",
+          "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$",
+          "description": "The rule contract version this document was authored against, as MAJOR.MINOR.PATCH. Absent means the 1.0.0 baseline. The engine rejects a document outside the range in contract/versions.json (supportedSchema.min..max)."
+        },
         "_meta": {
           "type": "object",
           "description": "Authoring metadata written by the rule builder; the engine ignores it."
@@ -124,6 +129,11 @@
           "enum": ["auto", "manual"],
           "default": "auto",
           "description": "Whether a trigger of this rule is meant to open a conversation on its own. 'auto' (default) is the existing behaviour. 'manual' marks a rule the app should record without speaking - badges, counters, rollups - so normally no conversation happens for it at all. Advisory only: the engine delivers every triggered rule either way."
+        },
+        "requiredVariables": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Output variable ids that must resolve before this rule may fire. Holds the rule back rather than letting it fire with an incomplete prompt and burn its daily allowance. Every name must be declared in output.variables, or the rule can never fire."
         }
       },
       "additionalProperties": false
@@ -133,7 +143,7 @@
       "type": "string",
       "enum": ["global", "daily", "activity"],
       "default": "global",
-      "description": "Session lifetime. global = app lifetime, daily = 24h reset, activity = until endActivityScope() (an activity is a trip in the fleet app, a workout in other domains). Case-insensitive in engine."
+      "description": "Session lifetime. global = app lifetime, daily = 24h reset, activity = until endActivityScope() (an activity is a trip in the fleet app, high intent action in other products ect.). Case-insensitive in engine."
     },
 
     "throttle": {
@@ -311,12 +321,9 @@
         },
         "operator": { "$ref": "#/definitions/operator" },
         "value": {
-          "description": "Comparison value, in the unit the parameter is emitted in — see `parameter`. String/number/boolean for most operators, array of strings for 'in'.",
-          "oneOf": [
-            { "type": "string", "minLength": 1 },
-            { "type": "number" },
-            { "type": "boolean" },
-            { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1 }
+          "description": "Comparison value, in the unit the parameter is emitted in — see `parameter`. A single value for every operator except 'in', which takes an array. Type it as the parameter is emitted: `program_week` arrives as the JSON number 4, so write 4 and [4, 8, 12], not \"4\" and [\"4\", \"8\", \"12\"]. The engine matches a quoted number against a numeric parameter anyway, but the validator warns, because a quoted numeral is otherwise indistinguishable from a genuine string identifier.",
+          "allOf": [
+            { "$ref": "#/definitions/conditionValue" }
           ]
         },
         "source": {
@@ -326,15 +333,18 @@
         "eventName": {
           "type": "string",
           "minLength": 1,
-          "description": "Optional. Restricts the lookup to one event name within the data source. Without it the engine takes the newest event carrying `parameter`, whichever event that was - so a parameter several events share (Mojo's `reason_for_skipping` on exercise_skipped and session_abandoned, `week` and `session_id` on all three session events) resolves by arrival order."
+          "description": "Optional event selector. Present, the lookup becomes an exact (dataSource, eventName) match instead of a search for any event carrying `parameter`. Use it when several events under one data source share a parameter name."
         }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "allOf": [
+        { "$ref": "#/definitions/operatorValueShape" }
+      ]
     },
 
     "wellnessValueCondition": {
       "type": "object",
-      "description": "Stricter valueCondition for Wellness triggers. `parameter` is restricted to the 9 keys actually emitted in wellness_measurement_taken attrs. `wellnessLevel` values are constrained to the Wellness framework WellnessLevel enum. Numeric-typed parameters require numeric values. Scales: stressIndex 0-200 (raw Baevsky), wellnessIndex 0-10 (every app renders it as 'x/10'), oxygenSaturation 0-100. normalizedStressIndex has no confirmed band boundaries - prefer stressIndex.",
+      "description": "Stricter valueCondition for Wellness triggers. `parameter` is restricted to the 9 keys actually emitted in wellness_measurement_taken attrs. `wellnessLevel` values are constrained to the Wellness framework WellnessLevel enum. Numeric-typed parameters require numeric values.",
       "required": ["type", "parameter", "operator", "value"],
       "properties": {
         "type": { "type": "string", "const": "Value" },
@@ -348,21 +358,25 @@
         "operator": { "$ref": "#/definitions/operator" },
         "value": {
           "description": "Comparison value. Narrowed per-parameter by the allOf rules below.",
-          "oneOf": [
-            { "type": "string", "minLength": 1 },
-            { "type": "number" },
-            { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1 }
+          "allOf": [
+            { "$ref": "#/definitions/conditionValue" }
           ]
         },
         "source": {
           "type": "string",
           "description": "Optional source identifier."
+        },
+        "eventName": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional event selector; see valueCondition.eventName. Wellness emits a single event name today, so this is rarely needed here."
         }
       },
       "additionalProperties": false,
       "allOf": [
+        { "$ref": "#/definitions/operatorValueShape" },
         {
-          "description": "wellnessLevel must match the Wellness framework enum name (UNKNOWN / LOW / MEDIUM / HIGH). Note that the iOS apps currently submit the enum ordinal as a string ('0'-'3'), so a rule on this parameter will not match there until they are fixed.",
+          "description": "wellnessLevel must match the Wellness framework enum (UNKNOWN / LOW / MEDIUM / HIGH).",
           "if": {
             "properties": { "parameter": { "const": "wellnessLevel" } },
             "required": ["parameter"]
@@ -372,18 +386,14 @@
               "value": {
                 "oneOf": [
                   { "type": "string", "enum": ["UNKNOWN", "LOW", "MEDIUM", "HIGH"] },
-                  {
-                    "type": "array",
-                    "items": { "type": "string", "enum": ["UNKNOWN", "LOW", "MEDIUM", "HIGH"] },
-                    "minItems": 1
-                  }
+                  { "type": "array", "items": { "type": "string", "enum": ["UNKNOWN", "LOW", "MEDIUM", "HIGH"] } }
                 ]
               }
             }
           }
         },
         {
-          "description": "Numeric wellness fields (int / double) require a numeric value. `in` still accepts a non-empty string array per the generic operator rules.",
+          "description": "Numeric wellness fields (int / double) require a numeric value, including inside an 'in' set. This branch used to exempt `in` and accept a string array, which the engine then compared element-by-element against a JSON number and never matched.",
           "if": {
             "properties": {
               "parameter": {
@@ -400,14 +410,55 @@
               "value": {
                 "oneOf": [
                   { "type": "number" },
-                  {
-                    "type": "array",
-                    "items": { "type": "string", "minLength": 1 },
-                    "minItems": 1
-                  }
+                  { "type": "array", "minItems": 1, "items": { "type": "number" } }
                 ]
               }
             }
+          }
+        }
+      ]
+    },
+
+    "conditionScalar": {
+      "description": "A single comparison value. Typed as the parameter is emitted — a numeric parameter takes a number, a string parameter a string, a flag a boolean.",
+      "oneOf": [
+        { "type": "string" },
+        { "type": "number" },
+        { "type": "boolean" }
+      ]
+    },
+
+    "conditionValue": {
+      "description": "What a Value condition compares against: one scalar, or — for 'in' — a set of them. The item type mirrors the parameter's own type, so a numeric parameter takes [4, 8, 12] and a string parameter [\"MON\", \"TUE\"]. A set that mixes types cannot match on every element and is warned about.",
+      "oneOf": [
+        { "$ref": "#/definitions/conditionScalar" },
+        {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/definitions/conditionScalar" }
+        }
+      ]
+    },
+
+    "operatorValueShape": {
+      "description": "Couples `value`'s shape to the operator reading it. Both mistakes this rejects used to validate and then fail silently at runtime: 'in' against a scalar has no set to search, and a scalar operator handed an array cannot compare against it.",
+      "allOf": [
+        {
+          "if": {
+            "properties": { "operator": { "const": "in" } },
+            "required": ["operator"]
+          },
+          "then": {
+            "properties": { "value": { "type": "array" } }
+          }
+        },
+        {
+          "if": {
+            "properties": { "operator": { "not": { "const": "in" } } },
+            "required": ["operator"]
+          },
+          "then": {
+            "properties": { "value": { "not": { "type": "array" } } }
           }
         }
       ]
@@ -498,26 +549,6 @@
       "additionalProperties": false
     },
 
-    "relativeTimeWindowCondition": {
-      "type": "object",
-      "description": "Checks if a timestamp parameter falls within a time window from now.",
-      "required": ["type", "parameter", "fromNow"],
-      "properties": {
-        "type": { "type": "string", "const": "RelativeTimeWindow" },
-        "parameter": {
-          "type": "string",
-          "minLength": 1,
-          "description": "Event parameter containing a timestamp."
-        },
-        "fromNow": {
-          "type": "string",
-          "pattern": "^[+-]?\\d+[hdm]$",
-          "description": "Time offset. '1h' = within 1h future, '-4h' = within 4h past, '30m' = 30min, '-2d' = 2 days ago."
-        }
-      },
-      "additionalProperties": false
-    },
-
     "aggregateCondition": {
       "type": "object",
       "description": "Reduces a numeric field across every matching event in a rolling time window (min/max/avg/sum/count) and compares the result against a threshold.",
@@ -547,11 +578,10 @@
         "window": {
           "type": "string",
           "pattern": "^[1-9][0-9]*[hdm]$",
-          "description": "Rolling window looking back from now: '7d', '12h', '30m'. Note 'm' is minutes, not months."
+          "description": "Rolling window looking back from now: '7d', '12h', '30m'."
         },
         "scope": {
           "type": "string",
-          "minLength": 1,
           "enum": ["global"],
           "description": "Session whose history is read. Omit to read the rule's own session. Only 'global' can be named - daily and activity session ids embed a date or activity id."
         }
@@ -565,6 +595,26 @@
       "additionalProperties": false
     },
 
+    "relativeTimeWindowCondition": {
+      "type": "object",
+      "description": "Checks if a timestamp parameter falls within a time window from now.",
+      "required": ["type", "parameter", "fromNow"],
+      "properties": {
+        "type": { "type": "string", "const": "RelativeTimeWindow" },
+        "parameter": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Event parameter containing a timestamp."
+        },
+        "fromNow": {
+          "type": "string",
+          "pattern": "^[+-]?\\d+[hdm]$",
+          "description": "Time offset. '1h' = within 1h future, '-4h' = within 4h past, '30m' = 30min, '-2d' = 2 days ago."
+        }
+      },
+      "additionalProperties": false
+    },
+
     "aggregateOperator": {
       "type": "string",
       "enum": ["==", "!=", "<", "<=", ">", ">="],
@@ -574,7 +624,7 @@
     "operator": {
       "type": "string",
       "enum": ["==", "!=", "<", "<=", ">", ">=", "in", "contains"],
-      "description": "Comparison operator. 'in' requires value to be an array of strings. 'contains' does a case-insensitive substring match on string values (e.g. \"circle\" matches \"Circle K\"); for list-valued fields it matches if any element contains the substring."
+      "description": "Comparison operator. 'in' takes a set — an array whose items are typed as the parameter is emitted, so [4, 8, 12] for a numeric parameter and [\"MON\", \"TUE\"] for a string one. Every other operator takes a single value. 'contains' does a case-insensitive substring match on string values (e.g. \"circle\" matches \"Circle K\"); for list-valued fields it matches if any element contains the substring."
     },
 
     "timePeriod": {
@@ -635,11 +685,7 @@
     "variable": {
       "type": "object",
       "description": "Defines what data to extract from events/APIs and include in the LLM prompt.",
-      "required": ["dataSource"],
-      "anyOf": [
-        { "required": ["id"] },
-        { "required": ["value"] }
-      ],
+      "required": ["dataSource", "id"],
       "properties": {
         "id": {
           "type": "string",
@@ -673,7 +719,7 @@
         },
         "value": {
           "type": "string",
-          "description": "Static value with $ prefix for extracted parameters (e.g. '$question')."
+          "description": "Accepted but not read by this engine - RuleVariable has no such field, so writing it changes nothing. Name the parameter in 'id' instead. It stays in the grammar so documents already carrying it remain valid, and the validator warns when it appears."
         }
       },
       "additionalProperties": false
