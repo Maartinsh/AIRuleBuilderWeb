@@ -531,11 +531,23 @@ function toggleOutputSection() {
 
 function toggleFollowUpSection() {
   const enabled = document.getElementById('follow-up-enabled')?.checked === true;
+  const choice = enabled && document.getElementById('follow-up-options-enabled')?.checked === true;
   document.getElementById('follow-up-fields')?.classList.toggle('hidden', !enabled);
+  document.getElementById('follow-up-options-fields')?.classList.toggle('hidden', !choice);
+  const confirmed = document.getElementById('follow-up-outcome-confirmed');
+  if (confirmed) confirmed.textContent = choice ? 'Confirmed + the chosen item' : 'Confirmed';
+  const help = document.getElementById('follow-up-outcomes-help');
+  if (help) {
+    help.innerHTML = choice
+      ? 'Mobile receives <code>CONFIRMED</code> with <code>selection</code> (the chosen item exactly as the trigger delivered it) or <code>DENIED</code> for none of them. <code>LATER</code> is never stored for a choice; the rule re-asks with fresh options.'
+      : 'Mobile receives <code>CONFIRMED</code> or <code>DENIED</code> (and <code>LATER</code> when the app enables it); these labels are not stored as action payloads.';
+  }
+  if (choice) renderFollowUpOptionCandidates();
 }
 
-function updateProductSpecificSections() {
-  document.getElementById('section-follow-up')?.classList.toggle('hidden', selectedProduct !== 'mojo');
+/** Kept for Mojo: its rules have always exported this id. */
+function defaultFollowUpId() {
+  return selectedProduct === 'mojo' ? 'exercise_confirmation' : 'confirmation';
 }
 
 /**
@@ -1983,6 +1995,169 @@ function _updateVariableVisibility() {
 }
 
 /* =========================================================
+   FOLLOW-UP CHOICE OPTIONS
+   ========================================================= */
+
+function collectSingleExpressions(expr, out = []) {
+  if (!expr) return out;
+  if (expr.type === 'SINGLE') {
+    if (expr.id) out.push({ id: expr.id, dataSource: expr.dataSource || '' });
+  } else if (Array.isArray(expr.expressions)) {
+    expr.expressions.forEach(e => collectSingleExpressions(e, out));
+  }
+  return out;
+}
+
+/**
+ * The output variables a choice follow-up can enumerate: list variables (source +
+ * fields) with the trigger that delivers them. The engine reads a variable from
+ * its explicit triggerId, otherwise from any expression with the variable's data
+ * source; one that neither reaches never yields an option, and a rule with
+ * options is held until one does - so only `backed` candidates are offered.
+ */
+function followUpOptionCandidates(rule) {
+  const expressions = collectSingleExpressions(rule?.triggerExpression);
+  const ids = new Set(expressions.map(e => e.id));
+  const sameSource = ds => expressions.some(e => e.dataSource.toLowerCase() === String(ds || '').toLowerCase());
+  return (rule?.output?.variables || [])
+    .filter(v => v.id && v.source)
+    .map(v => ({
+      id: v.id,
+      source: v.source,
+      fields: Array.isArray(v.fields) ? v.fields : [],
+      dataSource: v.dataSource || '',
+      triggerId: v.triggerId || '',
+      backed: v.triggerId ? ids.has(v.triggerId) : sameSource(v.dataSource)
+    }));
+}
+
+/**
+ * Why nothing can be offered: either no trigger of the rule returns a list (on-device
+ * events carry single values), or one does and no variable reads it yet.
+ */
+function noCandidateHint(expressions) {
+  const listTriggers = expressions.flatMap(e => {
+    const endpoint = (API_ENDPOINTS[e.dataSource] || []).find(x => x.id === e.id);
+    const sources = [...new Set((endpoint?.params || []).filter(p => p.source).map(p => p.source))];
+    return sources.length ? [{ id: e.id, sources }] : [];
+  });
+  if (!listTriggers.length) {
+    const named = expressions.map(e => e.id).filter(Boolean).join(', ');
+    const subject = named
+      ? `${named} deliver${expressions.length === 1 ? 's' : ''} single values, not a list`
+      : 'No trigger of this rule returns a list';
+    return `${subject}, so there is nothing to pick from. Keep this off for a yes / no question, or add a trigger that returns a list (a nearby-places search, the jobs API, trips).`;
+  }
+  return listTriggers
+    .map(t => `${t.id} returns a ${t.sources.join(' / ')} list: add a variable with Source Key ${t.sources[0]} and Fields to offer it.`)
+    .join(' ');
+}
+
+/** Primitive paths an option label can read, expanded from the variable's fields. */
+function labelPathCandidates(candidate) {
+  const nested = OPTION_LABEL_PATHS[candidate.source] || {};
+  return candidate.fields.flatMap(f => nested[f] || [f]);
+}
+
+function parseFieldList(str) {
+  return String(str || '').split(',').map(s => s.trim()).filter(Boolean);
+}
+
+/**
+ * Repopulates the options-variable select from the current form. Called on every
+ * form change so adding a list variable or removing a trigger is reflected at once.
+ * A selection that stops being offered is kept and labelled, never dropped silently.
+ */
+function renderFollowUpOptionCandidates(preferred, rule) {
+  const select = document.getElementById('follow-up-options-variable');
+  if (!select) return;
+  if (!rule) {
+    rule = {
+      output: { variables: buildVariablesJSON() },
+      triggerExpression: buildTriggerJSON(document.getElementById('trigger-root'))
+    };
+  }
+  const candidates = followUpOptionCandidates(rule);
+  const offered = candidates.filter(c => c.backed);
+  const wanted = preferred !== undefined ? preferred : select.value;
+
+  const options = [{
+    value: '',
+    label: offered.length ? '\u2014 Select variable \u2014' : '\u2014 No list variable reads from this rule\u2019s triggers \u2014'
+  }];
+  for (const c of offered) {
+    options.push({ value: c.id, label: `${c.id} \u2014 ${c.source} list${c.triggerId ? ` from ${c.triggerId}` : ''}` });
+  }
+  if (wanted && !offered.some(c => c.id === wanted)) {
+    const stale = candidates.find(c => c.id === wanted);
+    options.push({
+      value: wanted,
+      label: `${wanted} \u2014 ${stale ? 'not read by any trigger in this rule' : 'not a list variable of this rule'}`
+    });
+  }
+  _updateSelectOptions(select, options);
+  select.value = wanted || '';
+
+  const hint = document.getElementById('follow-up-options-variable-hint');
+  if (hint) hint.textContent = offered.length
+    ? 'The engine numbers the items when the rule fires; the answer carries the chosen item whole.'
+    : noCandidateHint(collectSingleExpressions(rule.triggerExpression));
+
+  renderFollowUpLabelChoices(candidates.find(c => c.id === select.value) || null);
+}
+
+/**
+ * Clickable label-field chips over the chosen variable's fields. The text input is
+ * the source of truth (its order is the spoken order); a chip adds or removes its
+ * path there. Switching variable resets the input to the first two paths.
+ */
+function renderFollowUpLabelChoices(candidate) {
+  const host = document.getElementById('follow-up-options-label-chips');
+  const input = document.getElementById('follow-up-options-labels');
+  if (!host || !input) return;
+  const paths = candidate ? labelPathCandidates(candidate) : [];
+  const variableId = candidate ? candidate.id : '';
+  if (host.dataset.variable !== variableId) {
+    host.dataset.variable = variableId;
+    input.value = paths.slice(0, 2).join(', ');
+  }
+  const chosen = new Set(parseFieldList(input.value));
+  host.innerHTML = '';
+  for (const path of paths) {
+    host.append(h('button', {
+      type: 'button',
+      className: `label-chip${chosen.has(path) ? ' active' : ''}`,
+      onClick: () => {
+        const current = parseFieldList(input.value);
+        input.value = (current.includes(path) ? current.filter(p => p !== path) : [...current, path]).join(', ');
+        renderFollowUpLabelChoices(candidate);
+        onFormChange();
+      }
+    }, path));
+  }
+  host.classList.toggle('hidden', paths.length === 0);
+}
+
+/** Loads a followUp.options object (or null) into the form. */
+function setFollowUpOptionsForm(options) {
+  renderFollowUpOptionCandidates(options?.fromVariable || '');
+  const labels = Array.isArray(options?.labelFields) ? options.labelFields.filter(l => typeof l === 'string') : [];
+  document.getElementById('follow-up-options-labels').value = labels.join(', ');
+  document.getElementById('follow-up-options-max').value = Number.isInteger(options?.max) ? options.max : '';
+  renderFollowUpOptionCandidates();
+}
+
+function buildFollowUpOptionsJSON() {
+  const options = {
+    fromVariable: val('follow-up-options-variable'),
+    labelFields: parseFieldList(val('follow-up-options-labels'))
+  };
+  const max = val('follow-up-options-max');
+  if (max !== '') options.max = Number(max);
+  return options;
+}
+
+/* =========================================================
    SCOPE WARNING SYSTEM
    Checks for incompatibilities between rule scope and
    variable data sources or trigger events.
@@ -2104,12 +2279,15 @@ function buildRuleJSON() {
     }
   }
 
-  // -- Mojo conversational follow-up --
+  // -- Conversational follow-up --
   if (document.getElementById('follow-up-enabled')?.checked) {
     rule.followUp = {
-      id: val('follow-up-id') || 'exercise_confirmation',
+      id: val('follow-up-id') || defaultFollowUpId(),
       question: val('follow-up-question')
     };
+    if (document.getElementById('follow-up-options-enabled')?.checked) {
+      rule.followUp.options = buildFollowUpOptionsJSON();
+    }
   }
 
   // -- Trigger Expression --
@@ -2548,6 +2726,7 @@ function updatePreview() {
   renderTopicPanel();
   checkScopeWarnings();
   _updateVariableVisibility();
+  renderFollowUpOptionCandidates(undefined, rules[activeRuleIndex]);
 }
 
 /**
@@ -2796,6 +2975,7 @@ function validateRule(jsonArray) {
     if (rule.followUp && !rule.followUp.question?.trim()) {
       errors.push(`${prefix}Follow-up question is required`);
     }
+    validateFollowUpOptions(rule, errors, warnings, prefix);
 
     // Scope-event warnings
     const scope = rule.sessionScope || 'global';
@@ -2879,6 +3059,55 @@ function validateValueConditionTypes(expr, errors, warnings, prefix) {
 
     if (quotedNumber(cond.value)) {
       warnings.push(`${where}: the value is a quoted number \u2014 a numeric parameter arrives as a JSON number, so drop the quotes`);
+    }
+  }
+}
+
+/**
+ * Mirrors the engine's RulesValidator.validateFollowUpOptions with the same
+ * severities - an undeclared variable rejects, a variable that can never carry a
+ * list only warns - plus the check the engine leaves to runtime: whether a trigger
+ * in this rule delivers the variable at all. Without one the rule is held forever.
+ */
+function validateFollowUpOptions(rule, errors, warnings, prefix) {
+  if (!rule.followUp || rule.followUp.options === undefined) return;
+  const options = rule.followUp.options;
+  if (!options || typeof options !== 'object' || Array.isArray(options)) {
+    errors.push(`${prefix}followUp.options must be an object`);
+    return;
+  }
+  const fromVariable = typeof options.fromVariable === 'string' ? options.fromVariable.trim() : '';
+  const declared = (rule.output?.variables || []).find(v => v.id === fromVariable);
+  if (!fromVariable) {
+    errors.push(`${prefix}Follow-up options need a variable to list (options.fromVariable)`);
+  } else if (!declared) {
+    errors.push(`${prefix}Follow-up options.fromVariable "${fromVariable}" is not one of this rule's output variables, so no option could ever be built and the rule would never fire`);
+  }
+
+  const labels = Array.isArray(options.labelFields) ? options.labelFields : null;
+  if (!labels || labels.length === 0 || labels.some(l => typeof l !== 'string' || !l.trim())) {
+    errors.push(`${prefix}Follow-up options need at least one label field`);
+  }
+  if (options.max !== undefined && (!Number.isInteger(options.max) || options.max < 1)) {
+    errors.push(`${prefix}Follow-up options.max must be a whole number of at least 1`);
+  }
+  if (!declared) return;
+
+  const candidate = followUpOptionCandidates(rule).find(c => c.id === fromVariable);
+  if (!candidate) {
+    warnings.push(`${prefix}Follow-up options variable "${fromVariable}" has no source key, so it resolves to a single value and yields no options`);
+    return;
+  }
+  if (!candidate.backed) {
+    errors.push(candidate.triggerId
+      ? `${prefix}Follow-up options variable "${fromVariable}" reads trigger "${candidate.triggerId}", which is not in this rule's trigger expression. Options are built only from the rule's own triggers, so the rule would never fire`
+      : `${prefix}Follow-up options variable "${fromVariable}" reads ${candidate.dataSource || 'its data source'}, but no trigger in this rule uses it. Options are built only from the rule's own triggers, so the rule would never fire`);
+  }
+  for (const label of labels || []) {
+    if (typeof label !== 'string' || !label.trim()) continue;
+    const covered = candidate.fields.some(f => label === f || label.startsWith(`${f}.`));
+    if (!covered) {
+      warnings.push(`${prefix}Follow-up label field "${label}" is not among the variable's fields (${candidate.fields.join(', ') || 'none'}), so the option label reads a field the prompt never sees`);
     }
   }
 }
@@ -3131,6 +3360,17 @@ function highlightErrorFields(jsonArray) {
     followUpQuestion?.classList.add('field-error');
     document.getElementById('section-follow-up')?.classList.add('card-error');
   }
+  if (followUpEnabled?.checked && document.getElementById('follow-up-options-enabled')?.checked) {
+    const options = rule.followUp?.options || {};
+    const bad = [];
+    const declared = (rule.output?.variables || []).some(v => v.id === options.fromVariable);
+    const candidate = followUpOptionCandidates(rule).find(c => c.id === options.fromVariable);
+    if (!declared || candidate?.backed === false) bad.push('follow-up-options-variable');
+    if (!options.labelFields?.length) bad.push('follow-up-options-labels');
+    if (options.max !== undefined && (!Number.isInteger(options.max) || options.max < 1)) bad.push('follow-up-options-max');
+    for (const id of bad) document.getElementById(id)?.classList.add('field-error');
+    if (bad.length) document.getElementById('section-follow-up')?.classList.add('card-error');
+  }
 
   // Condition-required triggers: highlight trigger cards missing conditions
   if (rule.triggerExpression) {
@@ -3292,15 +3532,17 @@ function populateFormFromRule(rule) {
   }
   toggleOutputSection();
 
-  // Mojo conversational follow-up
-  document.getElementById('follow-up-enabled').checked = !!rule.followUp;
-  document.getElementById('follow-up-id').value = rule.followUp?.id || 'exercise_confirmation';
-  document.getElementById('follow-up-question').value = rule.followUp?.question || '';
-  toggleFollowUpSection();
-
   // Trigger Expression
   const triggerRoot = document.getElementById('trigger-root');
   renderTriggerExpression(triggerRoot, 0, rule.triggerExpression);
+
+  // Conversational follow-up - after the triggers, which decide its option candidates
+  document.getElementById('follow-up-enabled').checked = !!rule.followUp;
+  document.getElementById('follow-up-id').value = rule.followUp?.id || defaultFollowUpId();
+  document.getElementById('follow-up-question').value = rule.followUp?.question || '';
+  document.getElementById('follow-up-options-enabled').checked = !!rule.followUp?.options;
+  setFollowUpOptionsForm(rule.followUp?.options || null);
+  toggleFollowUpSection();
 
   // Open all sections
   for (const header of document.querySelectorAll('.card-header')) {
@@ -3326,10 +3568,6 @@ function resetForm(silent = false) {
   document.getElementById('output-instructions').value = '';
   document.getElementById('output-tone').value = '';
   document.getElementById('variables-list').innerHTML = '';
-  document.getElementById('follow-up-enabled').checked = false;
-  document.getElementById('follow-up-id').value = 'exercise_confirmation';
-  document.getElementById('follow-up-question').value = '';
-  toggleFollowUpSection();
   const _ts = document.getElementById('template-select'); if (_ts) _ts.value = '';
   _varCounter = 0;
 
@@ -3338,6 +3576,13 @@ function resetForm(silent = false) {
   // Reset trigger
   const triggerRoot = document.getElementById('trigger-root');
   renderTriggerExpression(triggerRoot, 0);
+
+  document.getElementById('follow-up-enabled').checked = false;
+  document.getElementById('follow-up-id').value = defaultFollowUpId();
+  document.getElementById('follow-up-question').value = '';
+  document.getElementById('follow-up-options-enabled').checked = false;
+  setFollowUpOptionsForm(null);
+  toggleFollowUpSection();
 
   if (!silent) {
     rules = [{ id: '', sessionScope: 'global', triggerExpression: { type: 'GROUP', groupType: 'AND' } }];
@@ -3824,7 +4069,6 @@ function renderProductSwitch() {
     btn.addEventListener('click', () => onProductChange(p.id));
     host.append(btn);
   }
-  updateProductSpecificSections();
 }
 
 async function init() {

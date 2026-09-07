@@ -372,6 +372,15 @@ const FILTER_FIELDS = {
     { id: 'eventType_Id', type: 'string', label: 'event type ID' },
     { id: 'eventType_Description', type: 'string', label: 'event type description' },
   ],
+  // Google nearby search — items of the `places` array (_rawPlaces), nearest
+  // first. displayName and location are nested objects, so they cannot be
+  // filtered on; a follow-up option label reaches them by dotted path.
+  places: [
+    { id: 'id', type: 'string', label: 'Google place id' },
+    { id: 'formattedAddress', type: 'string', label: 'address' },
+    { id: 'rating', type: 'double', label: 'rating 1-5' },
+    { id: 'businessStatus', type: 'string', label: 'OPERATIONAL / CLOSED_TEMPORARILY / CLOSED_PERMANENTLY' },
+  ],
   // MojoPortal therapy_sessions — items of the `sessions` array (_rawSessions),
   // sorted oldest to newest. Field names are the portal's own, so they are
   // camelCase here while the on-device Mojo event attributes are snake_case.
@@ -404,6 +413,19 @@ const FILTER_FIELDS = {
     { id: 'description', type: 'string', label: 'exercise description' },
     { id: 'instructions', type: 'string', label: 'exercise instructions' },
   ]
+};
+
+/**
+ * Follow-up option labels are read by dotted path and must land on a primitive,
+ * so a list field that extracts as an object has to be named down to its text.
+ * Keyed by source key, then by the field as it appears in a variable's `fields`;
+ * a field absent here is offered as itself.
+ */
+const OPTION_LABEL_PATHS = {
+  places: {
+    displayName: ['displayName.text'],
+    location: ['location.latitude', 'location.longitude']
+  }
 };
 
 /* =========================================================
@@ -1395,6 +1417,7 @@ const API_ENDPOINTS = {
       apiType: 'GOOGLE_NEARBY_SEARCH',
       params: [
         { id: 'placesFound', label: 'number of places found' },
+        { id: 'places', label: 'place list — name & address', source: 'places', fields: ['displayName', 'formattedAddress'] },
         { id: 'closestPlaceName', label: 'closest station name' },
         { id: 'closestPlaceAddress', label: 'closest station address' },
         { id: 'closestPlaceRating', label: 'closest station rating' },
@@ -1411,6 +1434,7 @@ const API_ENDPOINTS = {
       apiType: 'GOOGLE_NEARBY_SEARCH',
       params: [
         { id: 'placesFound', label: 'number of places found' },
+        { id: 'places', label: 'place list — name & address', source: 'places', fields: ['displayName', 'formattedAddress'] },
         { id: 'closestPlaceName', label: 'closest shop name' },
         { id: 'closestPlaceAddress', label: 'closest shop address' },
         { id: 'closestPlaceRating', label: 'closest shop rating' },
@@ -1425,6 +1449,7 @@ const API_ENDPOINTS = {
       apiType: 'GOOGLE_NEARBY_SEARCH',
       params: [
         { id: 'placesFound', label: 'number of places found' },
+        { id: 'places', label: 'place list — name & address', source: 'places', fields: ['displayName', 'formattedAddress'] },
         { id: 'closestPlaceName', label: 'closest restaurant name' },
         { id: 'closestPlaceAddress', label: 'closest restaurant address' },
         { id: 'closestPlaceRating', label: 'closest restaurant rating' },
@@ -1438,6 +1463,7 @@ const API_ENDPOINTS = {
       apiType: 'GOOGLE_NEARBY_SEARCH',
       params: [
         { id: 'placesFound', label: 'number of places found' },
+        { id: 'places', label: 'place list — name & address', source: 'places', fields: ['displayName', 'formattedAddress'] },
         { id: 'closestPlaceName', label: 'closest place name' },
         { id: 'closestPlaceAddress', label: 'closest place address' },
         { id: 'closestPlaceRating', label: 'closest place rating' },
@@ -1450,6 +1476,7 @@ const API_ENDPOINTS = {
       apiType: 'GOOGLE_NEARBY_SEARCH',
       params: [
         { id: 'placesFound', label: 'number of places found' },
+        { id: 'places', label: 'place list — name & address', source: 'places', fields: ['displayName', 'formattedAddress'] },
         { id: 'closestPlaceName', label: 'closest cafe name' },
         { id: 'closestPlaceAddress', label: 'closest cafe address' },
         { id: 'closestPlaceRating', label: 'closest cafe rating' },
@@ -1462,6 +1489,7 @@ const API_ENDPOINTS = {
       apiType: 'GOOGLE_NEARBY_SEARCH',
       params: [
         { id: 'placesFound', label: 'number of places found' },
+        { id: 'places', label: 'place list — name & address', source: 'places', fields: ['displayName', 'formattedAddress'] },
         { id: 'closestPlaceName', label: 'closest pharmacy name' },
         { id: 'closestPlaceAddress', label: 'closest pharmacy address' },
         { id: 'closestPlaceRating', label: 'closest pharmacy rating' },
@@ -1474,6 +1502,7 @@ const API_ENDPOINTS = {
       apiType: 'GOOGLE_NEARBY_SEARCH',
       params: [
         { id: 'placesFound', label: 'number of places found' },
+        { id: 'places', label: 'place list — name & address', source: 'places', fields: ['displayName', 'formattedAddress'] },
         { id: 'closestPlaceName', label: 'closest hospital name' },
         { id: 'closestPlaceAddress', label: 'closest hospital address' },
       ]
@@ -1485,6 +1514,7 @@ const API_ENDPOINTS = {
       apiType: 'GOOGLE_NEARBY_SEARCH',
       params: [
         { id: 'placesFound', label: 'number of places found' },
+        { id: 'places', label: 'place list — name & address', source: 'places', fields: ['displayName', 'formattedAddress'] },
         { id: 'closestPlaceName', label: 'closest ATM name' },
         { id: 'closestPlaceAddress', label: 'closest ATM address' },
       ]
@@ -1496,6 +1526,7 @@ const API_ENDPOINTS = {
       apiType: 'GOOGLE_NEARBY_SEARCH',
       params: [
         { id: 'placesFound', label: 'number of places found' },
+        { id: 'places', label: 'place list — name & address', source: 'places', fields: ['displayName', 'formattedAddress'] },
         { id: 'closestPlaceName', label: 'closest parking name' },
         { id: 'closestPlaceAddress', label: 'closest parking address' },
       ]
@@ -1507,6 +1538,7 @@ const API_ENDPOINTS = {
       apiType: 'GOOGLE_NEARBY_SEARCH',
       params: [
         { id: 'placesFound', label: 'number of places found' },
+        { id: 'places', label: 'place list — name & address', source: 'places', fields: ['displayName', 'formattedAddress'] },
         { id: 'closestPlaceName', label: 'closest station name' },
         { id: 'closestPlaceAddress', label: 'closest station address' },
       ]
@@ -1518,6 +1550,7 @@ const API_ENDPOINTS = {
       apiType: 'GOOGLE_NEARBY_SEARCH',
       params: [
         { id: 'placesFound', label: 'number of places found' },
+        { id: 'places', label: 'place list — name & address', source: 'places', fields: ['displayName', 'formattedAddress'] },
         { id: 'closestPlaceName', label: 'closest car wash name' },
         { id: 'closestPlaceAddress', label: 'closest car wash address' },
       ]
@@ -1529,6 +1562,7 @@ const API_ENDPOINTS = {
       apiType: 'GOOGLE_NEARBY_SEARCH',
       params: [
         { id: 'placesFound', label: 'number of places found' },
+        { id: 'places', label: 'place list — name & address', source: 'places', fields: ['displayName', 'formattedAddress'] },
         { id: 'closestPlaceName', label: 'closest repair shop name' },
         { id: 'closestPlaceAddress', label: 'closest repair shop address' },
       ]
@@ -1540,6 +1574,7 @@ const API_ENDPOINTS = {
       apiType: 'GOOGLE_NEARBY_SEARCH',
       params: [
         { id: 'placesFound', label: 'number of places found' },
+        { id: 'places', label: 'place list — name & address', source: 'places', fields: ['displayName', 'formattedAddress'] },
         { id: 'closestPlaceName', label: 'closest store name' },
         { id: 'closestPlaceAddress', label: 'closest store address' },
       ]

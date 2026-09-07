@@ -11,6 +11,7 @@ def main():
         page = browser.new_page(viewport={"width": 1440, "height": 1000})
         try:
             page.goto(BASE_URL, wait_until="networkidle")
+            page.on("dialog", lambda dialog: dialog.accept())
             page.get_by_role("button", name="Mojo", exact=True).click()
 
             section = page.locator("#section-follow-up")
@@ -40,8 +41,8 @@ def main():
                 "question": "Would you like to continue the exercise?",
             }
             assert "actions" not in built["followUp"]
-            page.get_by_text("Confirm exercise", exact=True).wait_for()
-            page.get_by_text("Deny exercise", exact=True).wait_for()
+            page.get_by_text("Confirmed", exact=True).wait_for()
+            page.get_by_text("Denied", exact=True).wait_for()
             if screenshot_path := os.environ.get("FOLLOW_UP_SCREENSHOT"):
                 section.screenshot(path=screenshot_path)
 
@@ -77,8 +78,10 @@ def main():
             assert not page.locator("#follow-up-enabled").is_checked()
             assert page.locator("#follow-up-question").input_value() == ""
 
+            # The follow-up is product-neutral; only the default id is Mojo's.
             page.get_by_role("button", name="Fleet", exact=True).click()
-            assert section.is_hidden()
+            assert section.is_visible()
+            assert page.locator("#follow-up-id").input_value() == "confirmation"
         finally:
             browser.close()
 

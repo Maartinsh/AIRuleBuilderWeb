@@ -188,6 +188,22 @@
       color: var(--color-text-secondary);
       font-size: 0.8125rem;
     }
+    .label-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 6px; }
+    .label-chip {
+      padding: 4px 10px;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      background: var(--color-surface-alt);
+      color: var(--color-text-secondary);
+      font: inherit;
+      font-size: 0.75rem;
+      cursor: pointer;
+    }
+    .label-chip.active {
+      background: var(--color-primary-light);
+      border-color: var(--color-primary);
+      color: var(--color-primary);
+    }
     .card-toggle {
       font-size: 0.75rem;
       color: var(--color-text-muted);
@@ -930,10 +946,10 @@
         </div>
       </div>
 
-      <!-- MOJO CONVERSATIONAL FOLLOW-UP -->
-      <div class="card hidden" id="section-follow-up">
+      <!-- CONVERSATIONAL FOLLOW-UP -->
+      <div class="card" id="section-follow-up">
         <div class="card-header open" onclick="toggleCard(this)">
-          <span class="card-title">Exercise Follow-up <span class="label-hint" style="text-transform:none;font-weight:400">(Mojo)</span></span>
+          <span class="card-title">Follow-up <span class="label-hint" style="text-transform:none;font-weight:400">(question after the rule speaks)</span></span>
           <span class="card-toggle">&#9660;</span>
         </div>
         <div class="card-body">
@@ -945,20 +961,53 @@
             <label for="follow-up-enabled" style="text-transform:none;font-weight:400;color:var(--color-text)">Ask a question after this rule triggers</label>
           </div>
           <div id="follow-up-fields" class="hidden">
-            <input type="hidden" id="follow-up-id" value="exercise_confirmation">
+            <div class="form-row">
+              <label for="follow-up-id">Follow-up ID</label>
+              <input type="text" id="follow-up-id" value="confirmation" placeholder="e.g. choose_station" oninput="onFormChange()">
+              <div class="help-text">Stable within the rule. Mobile maps (rule, follow-up) to what happens on each answer.</div>
+            </div>
             <div class="form-row">
               <label for="follow-up-question">Question</label>
-              <textarea id="follow-up-question" rows="2" maxlength="500" placeholder="e.g. Would you like to continue the exercise?" oninput="onFormChange()"></textarea>
+              <textarea id="follow-up-question" rows="2" maxlength="500" placeholder="e.g. Which station should I navigate to?" oninput="onFormChange()"></textarea>
               <div class="help-text">Written exactly as the assistant should ask it. A conversational output is required.</div>
+            </div>
+            <div class="toggle-row">
+              <label class="toggle-switch">
+                <input type="checkbox" id="follow-up-options-enabled" onchange="toggleFollowUpSection(); onFormChange()">
+                <span class="toggle-slider"></span>
+              </label>
+              <label for="follow-up-options-enabled" style="text-transform:none;font-weight:400;color:var(--color-text)">Let the user pick one item from a list</label>
+            </div>
+            <div class="help-text" id="follow-up-options-explainer">Off: a plain yes / no question, and the app gets only the outcome. On: the assistant reads out numbered items from one of this rule’s list variables, and the answer hands the picked item back to the app as data (e.g. a station’s coordinates). Either way the assistant already has the rule’s prompt and variables when it asks.</div>
+            <div id="follow-up-options-fields" class="hidden">
+              <div class="form-row">
+                <label for="follow-up-options-variable">Options from variable <span class="label-hint">(a list variable one of this rule's triggers delivers)</span></label>
+                <select id="follow-up-options-variable" onchange="renderFollowUpOptionCandidates(); onFormChange()"></select>
+                <div class="help-text" id="follow-up-options-variable-hint"></div>
+              </div>
+              <div class="form-row">
+                <label for="follow-up-options-labels">Label fields <span class="label-hint">(spoken in this order, joined with ", ")</span></label>
+                <div class="label-chips hidden" id="follow-up-options-label-chips"></div>
+                <input type="text" id="follow-up-options-labels" placeholder="e.g. displayName.text, formattedAddress" oninput="renderFollowUpOptionCandidates(); onFormChange()">
+                <div class="help-text">Click a field to add or remove it, or type dotted paths. Items where every label field is missing are skipped.</div>
+              </div>
+              <div class="form-row">
+                <label for="follow-up-options-max">Max options</label>
+                <input type="number" id="follow-up-options-max" min="1" placeholder="5" style="max-width:120px" oninput="onFormChange()">
+                <div class="help-text">In list order. The list is spoken, so keep it short.</div>
+              </div>
             </div>
             <div class="form-row">
               <label>Answer outcomes</label>
               <div class="follow-up-outcomes" aria-label="Fixed follow-up answer outcomes">
-                <span class="follow-up-outcome">Confirm exercise</span>
-                <span class="follow-up-outcome">Deny exercise</span>
+                <span class="follow-up-outcome" id="follow-up-outcome-confirmed">Confirmed</span>
+                <span class="follow-up-outcome">Denied</span>
               </div>
-              <div class="help-text">Fixed for the initial version. Mobile receives <code>CONFIRMED</code> or <code>DENIED</code>; these labels are not stored as action payloads.</div>
+              <div class="help-text" id="follow-up-outcomes-help">Mobile receives <code>CONFIRMED</code> or <code>DENIED</code> (and <code>LATER</code> when the app enables it); these labels are not stored as action payloads.</div>
             </div>
+          </div>
+        </div>
+      </div>
           </div>
         </div>
       </div>
