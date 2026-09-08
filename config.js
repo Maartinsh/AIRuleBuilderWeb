@@ -105,6 +105,37 @@ const GOOGLE_PLACES_PARAMS = [
   { id: 'closestPlaceBusinessStatus', type: 'string', label: 'closest place business status (e.g. OPERATIONAL)' }
 ];
 
+/**
+ * Search modes for the `search` block on a google_nearby_* trigger. The engine
+ * forwards the mode and its anchors to the app as request parameters and
+ * computes no geometry itself; an unknown mode is a hard validation error, not
+ * a fallback to nearby.
+ */
+const SEARCH_MODES = [
+  {
+    id: 'nearby',
+    label: 'Nearby',
+    help: 'Search around the vehicle’s current position, within the radius.'
+  },
+  {
+    id: 'along_route',
+    label: 'Along route',
+    help: 'Search the corridor between the current position and a destination. Radius bounds how far ahead a place may be; max detour bounds the extra driving it costs.'
+  },
+  {
+    id: 'near_destination',
+    label: 'Near destination',
+    help: 'Search around the destination rather than the vehicle — for arrival-time errands.'
+  },
+  {
+    id: 'near_point',
+    label: 'Fixed point',
+    help: 'Search around fixed coordinates that never move (a depot, a yard, a customer site).'
+  }
+];
+
+const GOOGLE_NEARBY_PREFIX = 'google_nearby_';
+
 const WEATHER_PARAMS = [
   { id: 'driving_conditions', type: 'string', label: 'driving conditions (good/moderate/bad_driving_conditions)' },
   { id: 'temperature', type: 'double', label: 'temperature' },
@@ -1182,6 +1213,11 @@ const EVENT_DATA_SOURCES = ['SmartDrive', 'BLE', 'POI', 'DateTime', 'Phone', 'We
  * Array extraction params also have source/fields:
  *   { id: 'varName', label: 'description', source: 'arrayKey', fields: [...] }
  *   → LLM receives: varName = [{...}, {...}]
+ *
+ * destinationCoordinates names the response field pair a `search.destination` can
+ * be read from. LocationSearchPlanner reads those two attributes off the endpoint's
+ * latest event, so an endpoint without them can never anchor a route or
+ * near-destination search and is not offered as a destination.
  */
 const API_ENDPOINTS = {
   MZONE: [
@@ -1190,6 +1226,7 @@ const API_ENDPOINTS = {
       label: "Today's Jobs",
       description: "JOBS_ACTIVE — today's active jobs with counts, statuses, next job info",
       apiType: 'JOBS_ACTIVE',
+      destinationCoordinates: { lat: 'nextJobLat', lng: 'nextJobLng' },
       params: [
         { id: 'count', label: 'total jobs' },
         { id: 'pendingJobs', label: 'pending jobs count' },
@@ -1222,6 +1259,7 @@ const API_ENDPOINTS = {
       label: 'All Jobs (Historical)',
       description: 'JOBS_ALL — all jobs from last 2 weeks, same fields as today',
       apiType: 'JOBS_ALL',
+      destinationCoordinates: { lat: 'nextJobLat', lng: 'nextJobLng' },
       params: [
         { id: 'count', label: 'total jobs' },
         { id: 'pendingJobs', label: 'pending jobs count' },
@@ -1232,6 +1270,8 @@ const API_ENDPOINTS = {
         { id: 'nextJobDescription', label: 'next pending job description' },
         { id: 'nextJobPlannedArrival', label: 'next job planned arrival' },
         { id: 'nextJobCustomerName', label: 'next job customer name' },
+        { id: 'nextJobLat', label: 'next job latitude' },
+        { id: 'nextJobLng', label: 'next job longitude' },
         { id: 'allJobs', label: 'job list — status overview', source: 'jobs', fields: ['id', 'description', 'jobStatus_Id'] },
         { id: 'allJobsDetailed', label: 'job list — full details', source: 'jobs', fields: ['id', 'description', 'jobStatus_Id', 'priority', 'utcPlannedArrival', 'utcActualArrival', 'isProblematic'] },
       ]
@@ -1241,6 +1281,7 @@ const API_ENDPOINTS = {
       label: 'Remaining Jobs',
       description: 'JOBS_ACTIVE — pending/upcoming jobs still to complete',
       apiType: 'JOBS_ACTIVE',
+      destinationCoordinates: { lat: 'nextJobLat', lng: 'nextJobLng' },
       params: [
         { id: 'count', label: 'remaining job count' },
         { id: 'pendingJobs', label: 'pending jobs count' },
@@ -1248,6 +1289,8 @@ const API_ENDPOINTS = {
         { id: 'nextJobPlannedArrival', label: 'next job planned arrival' },
         { id: 'nextJobCustomerName', label: 'next job customer name' },
         { id: 'nextJobDistance', label: 'distance to next job (km)' },
+        { id: 'nextJobLat', label: 'next job latitude' },
+        { id: 'nextJobLng', label: 'next job longitude' },
         { id: 'remainingJobs', label: 'job list — with arrival times', source: 'jobs', fields: ['id', 'description', 'utcPlannedArrival'] },
         { id: 'remainingJobsFull', label: 'job list — with priority & customer', source: 'jobs', fields: ['id', 'description', 'utcPlannedArrival', 'priority', 'customerName'] },
       ]
@@ -1257,11 +1300,14 @@ const API_ENDPOINTS = {
       label: 'Morning Jobs',
       description: 'JOBS_ACTIVE — jobs scheduled for the morning shift',
       apiType: 'JOBS_ACTIVE',
+      destinationCoordinates: { lat: 'nextJobLat', lng: 'nextJobLng' },
       params: [
         { id: 'count', label: 'morning job count' },
         { id: 'pendingJobs', label: 'pending jobs count' },
         { id: 'nextJobDescription', label: 'first morning job description' },
         { id: 'nextJobPlannedDeparture', label: 'first departure time' },
+        { id: 'nextJobLat', label: 'next job latitude' },
+        { id: 'nextJobLng', label: 'next job longitude' },
         { id: 'morningJobs', label: 'job list — with departure times', source: 'jobs', fields: ['id', 'description', 'utcPlannedDeparture'] },
       ]
     },
@@ -1270,6 +1316,7 @@ const API_ENDPOINTS = {
       label: 'Job Details',
       description: 'JOB_DETAILS — single job info including driver name, customer, timing',
       apiType: 'JOB_DETAILS',
+      destinationCoordinates: { lat: 'lat', lng: 'lng' },
       params: [
         { id: 'firstname', label: 'driver first name' },
         { id: 'description', label: 'job description' },
@@ -1287,8 +1334,8 @@ const API_ENDPOINTS = {
         { id: 'customerName', label: 'customer name' },
         { id: 'contactPerson', label: 'contact person' },
         { id: 'contactPhone', label: 'contact phone' },
-        { id: 'endLatitude', label: 'job latitude' },
-        { id: 'endLongitude', label: 'job longitude' },
+        { id: 'lat', label: 'job latitude' },
+        { id: 'lng', label: 'job longitude' },
         { id: 'drivingDistance', label: 'driving distance (km)' },
       ]
     },

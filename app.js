@@ -634,6 +634,7 @@ function renderTriggerExpression(container, depth = 0, data = null) {
   btnRow.append(h('button', { className: 'btn-add', onClick: () => {
     addTriggerCard(triggerList, depth);
     updateTriggerListUI();
+    renderSearchDestinationCandidates();
     onFormChange();
   } }, '+ Add Trigger'));
 
@@ -659,6 +660,9 @@ function renderTriggerExpression(container, depth = 0, data = null) {
   }
   container._updateUI = updateTriggerListUI;
   updateTriggerListUI();
+  // Only now do all of the rule's triggers exist, so this is the first point where
+  // a destination select can see them all.
+  if (depth === 0) renderSearchDestinationCandidates();
 }
 
 /**
@@ -733,6 +737,7 @@ function addTriggerGroup(list, parentDepth, data = null) {
  */
 function renderSingleTrigger(container, depth, data = null) {
   container.innerHTML = '';
+  container.dataset.field = 'singleTrigger';
 
   // Data Source
   // Only an author-configured trigger is worth carrying across a product switch.
@@ -936,10 +941,10 @@ function renderSingleTrigger(container, depth, data = null) {
   // Use event delegation on container so the listener survives trigger ID input rebuilds
   // (buildIdInput replaces the select element on every data source or scope change).
   container.addEventListener('change', (e) => {
-    if (e.target.dataset?.field === 'triggerId') updateConditionsVisibility();
+    if (e.target.dataset?.field === 'triggerId') { updateConditionsVisibility(); updateVisibility(); }
   });
   container.addEventListener('input', (e) => {
-    if (e.target.dataset?.field === 'triggerId') updateConditionsVisibility();
+    if (e.target.dataset?.field === 'triggerId') { updateConditionsVisibility(); updateVisibility(); }
   });
 
   // Reset prev-trigger tracking when the data source changes so the next trigger ID
@@ -969,6 +974,10 @@ function renderSingleTrigger(container, depth, data = null) {
   dateRangeContainer.append(createField('Date Range', dateRangeSelect));
   container.append(dateRangeContainer);
 
+  const searchContainer = h('div', { className: 'hidden', dataset: { field: 'search-container' } });
+  renderSearchSubForm(searchContainer, data?.search ?? null);
+  container.append(searchContainer);
+
   // Extracted Parameters (UserCommand only)
   const epContainer = h('div', { className: 'hidden', style: 'margin-top:12px' });
   const epLabel = h('label', {}, 'Extracted Parameters ');
@@ -990,6 +999,11 @@ function renderSingleTrigger(container, depth, data = null) {
     dateRangeContainer.classList.toggle('hidden', !isApi);
     const hasEpData = epInput.value.trim().length > 0;
     epContainer.classList.toggle('hidden', ds !== 'UserCommand' && !hasEpData);
+
+    const wasHidden = searchContainer.classList.contains('hidden');
+    const isPlaces = isPlacesExpressionJSON({ id: container.querySelector('[data-field="triggerId"]')?.value, dataSource: ds });
+    searchContainer.classList.toggle('hidden', !isPlaces);
+    if (isPlaces && wasHidden) renderSearchDestinationCandidates();
   }
   dsSelect.addEventListener('change', updateVisibility);
   updateVisibility();
@@ -1033,6 +1047,258 @@ function renderPoiSubForm(container, data = null) {
     fields.classList.toggle('hidden', !cb.checked);
     onFormChange();
   });
+}
+
+/** The response field pair a destination trigger hands coordinates over in. */
+function destinationCoordinateFields(id, dataSource) {
+  return (API_ENDPOINTS[dataSource] || []).find(x => x.id === id)?.destinationCoordinates || null;
+}
+
+/**
+ * Whether reading a destination from this trigger can be ruled out. An API endpoint
+ * the config does not list stays open, since an imported rule may name one the
+ * builder has not caught up with; an event data source is a fixed catalogue of
+ * device attributes and never carries a destination.
+ */
+function cannotSupplyDestination(id, dataSource) {
+  if (destinationCoordinateFields(id, dataSource)) return false;
+  if (!API_DATA_SOURCES.includes(dataSource)) return true;
+  return (API_ENDPOINTS[dataSource] || []).some(x => x.id === id);
+}
+
+/** Every field name the builder itself suggests, so a suggestion may be replaced. */
+function suggestedCoordinateFieldNames() {
+  const names = new Set();
+  for (const endpoints of Object.values(API_ENDPOINTS)) {
+    for (const ep of endpoints) {
+      if (!ep.destinationCoordinates) continue;
+      names.add(ep.destinationCoordinates.lat);
+      names.add(ep.destinationCoordinates.lng);
+    }
+  }
+  return names;
+}
+
+/** Every SINGLE trigger container of the form, in document order. */
+function singleTriggerBoxes() {
+  const root = document.getElementById('trigger-root');
+  return root ? Array.from(root.querySelectorAll('[data-field="singleTrigger"]')) : [];
+}
+
+function triggerBoxInfo(box) {
+  const label = box.closest('.item-card')?.querySelector(':scope > .item-header > .item-label')?.textContent || '';
+  const searchBox = box.querySelector('[data-field="search-container"]');
+  const id = box.querySelector('[data-field="triggerId"]')?.value || '';
+  const dataSource = box.querySelector('[data-field="dataSource"]')?.value || '';
+  return {
+    id,
+    dataSource,
+    label: (label.match(/^Trigger #\d+/) || [''])[0],
+    searchBox,
+    hasSearch: !!searchBox && (!searchBox.classList.contains('hidden') || searchBox.dataset.declared === '1'),
+    coordinates: destinationCoordinateFields(id, dataSource),
+    ruledOut: cannotSupplyDestination(id, dataSource)
+  };
+}
+
+/**
+ * Repopulates every destination select from the current form. A destination may
+ * not be the expression itself, may not be an expression that carries a search
+ * block of its own, and has to deliver a coordinate pair the planner can read,
+ * so those are withheld rather than offered and then rejected. An endpoint the
+ * builder does not know is offered, since its response cannot be ruled out. A
+ * selection that stops being offered is kept and labelled.
+ */
+function renderSearchDestinationCandidates() {
+  const all = singleTriggerBoxes().map(triggerBoxInfo);
+  for (const own of all) {
+    if (!own.searchBox) continue;
+    const select = own.searchBox.querySelector('[data-field="search-destination"]');
+    if (!select) continue;
+
+    const offered = all.filter(c => c.id && c.id !== own.id && !c.hasSearch && !c.ruledOut);
+    const wanted = select.value;
+    const options = [{ value: '', label: '— Select destination trigger —' }];
+    for (const c of offered) options.push({ value: c.id, label: `${c.id} — ${c.label}` });
+
+    if (wanted && !offered.some(c => c.id === wanted)) {
+      const known = all.find(c => c.id === wanted);
+      const why = !known ? 'not a trigger of this rule'
+        : wanted === own.id ? 'this trigger itself'
+        : known.hasSearch ? 'carries a search block of its own'
+        : 'delivers no destination coordinates';
+      options.push({ value: wanted, label: `${wanted} — ${why}` });
+    }
+    _updateSelectOptions(select, options);
+    select.value = wanted;
+    own.searchBox._syncSearchFields?.();
+  }
+}
+
+/**
+ * The search block of a google_nearby_* trigger. LocationSearchPlanner keys the
+ * freshness gate off the block's presence, so an implicit nearby search would
+ * share one cached response with every other rule on the same place type - the
+ * builder emits a block for every places trigger instead of leaving it out.
+ */
+function renderSearchSubForm(container, data = null) {
+  container.innerHTML = '';
+  if (data) container.dataset.declared = '1'; else delete container.dataset.declared;
+
+  const importedMode = typeof data?.mode === 'string' ? data.mode : '';
+  const known = SEARCH_MODES.some(m => m.id === importedMode);
+  if (importedMode && !known) container.dataset.unknownMode = importedMode;
+  else delete container.dataset.unknownMode;
+
+  const modeName = uid();
+  const modeGroup = h('div', { className: 'radio-group', style: 'max-width:560px', dataset: { field: 'search-mode-group' } });
+  for (const m of SEARCH_MODES) {
+    const inputId = `${modeName}-${m.id}`;
+    const input = h('input', { type: 'radio', name: modeName, id: inputId, value: m.id, dataset: { field: 'search-mode' } });
+    if (known ? importedMode === m.id : (!data && m.id === 'nearby')) input.checked = true;
+    input.addEventListener('change', () => { updateModeFields(); onFormChange(); });
+    modeGroup.append(h('label', { for: inputId }, input, h('span', {}, m.label)));
+  }
+  container.append(createField('Place Search', modeGroup));
+
+  const help = h('div', { className: 'help-text', dataset: { field: 'search-mode-help' } });
+  container.append(help);
+
+  const destRow = h('div', { className: 'hidden', dataset: { field: 'search-destination-row' } });
+  const destSelect = createSelect([]);
+  destSelect.dataset.field = 'search-destination';
+  const destHint = h('div', { className: 'help-text', dataset: { field: 'search-destination-hint' } });
+
+  const latField = h('input', { type: 'text', placeholder: 'e.g. nextJobLat', onInput: 'onFormChange()' });
+  latField.dataset.field = 'search-dest-lat-field';
+  const lngField = h('input', { type: 'text', placeholder: 'e.g. nextJobLng', onInput: 'onFormChange()' });
+  lngField.dataset.field = 'search-dest-lng-field';
+  if (data?.destination?.latField != null) latField.value = data.destination.latField;
+  if (data?.destination?.lngField != null) lngField.value = data.destination.lngField;
+
+  const fieldGrid = h('div', { className: 'form-grid hidden', dataset: { field: 'search-destination-fields' } },
+    createField('Latitude field', latField),
+    createField('Longitude field', lngField)
+  );
+  destRow.append(createField('Destination', destSelect), destHint, fieldGrid);
+  container.append(destRow);
+
+  const initialDest = typeof data?.destination?.triggerId === 'string' ? data.destination.triggerId : '';
+  if (initialDest) {
+    _updateSelectOptions(destSelect, [{ value: initialDest, label: initialDest }]);
+    destSelect.value = initialDest;
+  }
+
+  destSelect.addEventListener('change', () => {
+    const id = destSelect.value;
+    if (id) {
+      const target = singleTriggerBoxes().map(triggerBoxInfo).find(c => c.id === id);
+      const fields = destinationCoordinateFields(id, target?.dataSource);
+      if (fields) {
+        // A suggestion the builder made for the previous trigger is replaced; anything
+        // typed by hand is left alone, since only the author knows why it is there.
+        const suggested = suggestedCoordinateFieldNames();
+        const replaceable = f => !f.value.trim() || suggested.has(f.value.trim());
+        if (replaceable(latField)) latField.value = fields.lat;
+        if (replaceable(lngField)) lngField.value = fields.lng;
+      }
+    }
+    updateModeFields();
+    onFormChange();
+  });
+
+  const pointLat = h('input', { type: 'number', step: 'any', placeholder: '0.0', onInput: 'onFormChange()' });
+  pointLat.dataset.field = 'search-point-lat';
+  const pointLng = h('input', { type: 'number', step: 'any', placeholder: '0.0', onInput: 'onFormChange()' });
+  pointLng.dataset.field = 'search-point-lng';
+  if (data?.point?.lat != null) pointLat.value = data.point.lat;
+  if (data?.point?.lng != null) pointLng.value = data.point.lng;
+  const pointRow = h('div', { className: 'hidden', dataset: { field: 'search-point-row' } },
+    h('div', { className: 'form-grid' }, createField('Latitude', pointLat), createField('Longitude', pointLng))
+  );
+  container.append(pointRow);
+
+  const radiusInput = h('input', { type: 'number', min: '1', step: '1', placeholder: '500', onInput: 'onFormChange()' });
+  radiusInput.dataset.field = 'search-radius';
+  if (data?.radius != null) radiusInput.value = data.radius;
+  const detourInput = h('input', { type: 'number', min: '1', step: '1', placeholder: 'e.g. 2000', onInput: 'onFormChange()' });
+  detourInput.dataset.field = 'search-detour';
+  if (data?.maxDetourMeters != null) detourInput.value = data.maxDetourMeters;
+
+  const radiusField = createField('Radius (m)', radiusInput);
+  const detourField = h('div', { className: 'hidden', dataset: { field: 'search-detour-field' } }, createField('Max detour (m)', detourInput));
+  container.append(h('div', { className: 'form-grid' }, radiusField, detourField));
+  const radiusHint = h('div', { className: 'help-text', dataset: { field: 'search-radius-hint' } });
+  container.append(radiusHint);
+
+  function updateModeFields() {
+    const mode = container.querySelector('[data-field="search-mode"]:checked')?.value || '';
+    const spec = SEARCH_MODES.find(m => m.id === mode);
+    help.textContent = spec ? spec.help
+      : 'Pick a mode. The engine rejects a missing or unknown mode instead of reading it as a nearby search.';
+
+    const needsDestination = mode === 'along_route' || mode === 'near_destination';
+    destRow.classList.toggle('hidden', !needsDestination);
+    pointRow.classList.toggle('hidden', mode !== 'near_point');
+    detourField.classList.toggle('hidden', mode !== 'along_route');
+    fieldGrid.classList.toggle('hidden', !destSelect.value);
+    destHint.textContent = destSelect.value
+      ? 'The engine reads these two fields from the other trigger’s response, so both must name real response parameters.'
+      : destSelect.querySelector('option[value]:not([value=""])')
+        ? 'The engine resolves the destination from the named trigger’s newest response and holds the search until it can, so a changed destination needs nothing of the app.'
+        : 'No trigger of this rule delivers a destination, and there is no app-supplied fallback — add a jobs endpoint and read the destination from its response.';
+    radiusHint.textContent = mode === 'along_route'
+      ? 'Radius bounds how far ahead a place may be as driving distance from the current position; max detour bounds the extra driving it costs. Blank radius uses the engine default of 500 m.'
+      : 'Blank uses the engine default of 500 m.';
+  }
+  updateModeFields();
+  container._syncSearchFields = updateModeFields;
+}
+
+function buildSearchJSON(box) {
+  const q = f => box.querySelector(`[data-field="${f}"]`);
+  const text = f => q(f)?.value?.trim() || '';
+  const num = (f) => {
+    const raw = text(f);
+    if (!raw) return undefined;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : raw;
+  };
+
+  const mode = box.querySelector('[data-field="search-mode"]:checked')?.value || box.dataset.unknownMode || '';
+  const search = {};
+  if (mode) search.mode = mode;
+
+  if (mode === 'along_route' || mode === 'near_destination') {
+    const id = q('search-destination')?.value || '';
+    const lat = text('search-dest-lat-field');
+    const lng = text('search-dest-lng-field');
+    if (id || lat || lng) {
+      const destination = {};
+      if (id) destination.triggerId = id;
+      if (lat) destination.latField = lat;
+      if (lng) destination.lngField = lng;
+      search.destination = destination;
+    }
+  }
+
+  if (mode === 'near_point') {
+    const lat = num('search-point-lat');
+    const lng = num('search-point-lng');
+    if (lat !== undefined || lng !== undefined) {
+      search.point = {};
+      if (lat !== undefined) search.point.lat = lat;
+      if (lng !== undefined) search.point.lng = lng;
+    }
+  }
+
+  const radius = num('search-radius');
+  if (radius !== undefined) search.radius = radius;
+  if (mode === 'along_route') {
+    const detour = num('search-detour');
+    if (detour !== undefined) search.maxDetourMeters = detour;
+  }
+  return search;
 }
 
 /**
@@ -2383,6 +2649,13 @@ function buildSingleTriggerJSON(container) {
   const drEl = container.querySelector('[data-field="dateRangeInDays"]');
   if (drEl?.value) trigger.dateRangeInDays = parseInt(drEl.value);
 
+  // An imported block is kept even once the trigger is no longer a places one, so
+  // that the endpoint mismatch gets reported instead of silently disappearing.
+  const searchContainer = container.querySelector('[data-field="search-container"]');
+  if (searchContainer && (!searchContainer.classList.contains('hidden') || searchContainer.dataset.declared === '1')) {
+    trigger.search = buildSearchJSON(searchContainer);
+  }
+
   return trigger;
 }
 
@@ -2727,6 +3000,7 @@ function updatePreview() {
   checkScopeWarnings();
   _updateVariableVisibility();
   renderFollowUpOptionCandidates(undefined, rules[activeRuleIndex]);
+  renderSearchDestinationCandidates();
 }
 
 /**
@@ -2788,6 +3062,10 @@ function migrateRule(rule) {
   if (rule && rule.conversation != null) {
     const c = String(rule.conversation).trim().toLowerCase();
     if (c === 'manual') rule.conversation = 'manual'; else delete rule.conversation;
+  }
+  if (rule?.triggerExpression) {
+    migrateLegacyRadius(rule.triggerExpression);
+    migrateSearchDestination(rule.triggerExpression);
   }
   return rule;
 }
@@ -2887,6 +3165,12 @@ function _filterSchemaErrors(rawErrors, jsonArray) {
   const eitherOr = new Map(); // instancePath + anyOf schema path -> folded required props
   for (const err of rawErrors) {
     if (err.keyword === 'anyOf' || err.keyword === 'oneOf') continue;
+    // Ajv reports the failed if/then pair as well as the branch error inside it;
+    // "must match \"then\" schema" adds nothing to the branch error it wraps.
+    if (err.keyword === 'if') continue;
+    // A field forbidden by the active search mode fails a `not`, which Ajv can only
+    // report as "must NOT be valid" without naming it. validateSearch names it.
+    if (err.keyword === 'not' && err.instancePath.includes('/search')) continue;
 
     // Errors from oneOf branches the object's declared "type" doesn't select
     const target = _resolveInstancePath(jsonArray, err.instancePath.replace(/\/type$/, ''));
@@ -3008,6 +3292,9 @@ function validateRule(jsonArray) {
 
     // Value shape against the operator reading it, and value type against the parameter
     validateValueConditionTypes(rule.triggerExpression, errors, warnings, prefix);
+
+    // Place-search block, mode consistency and destination boundaries
+    validateSearch(rule, errors, warnings, prefix);
   }
 
   return {
@@ -3015,6 +3302,295 @@ function validateRule(jsonArray) {
     errors,
     warnings
   };
+}
+
+const SEARCH_MODE_LIST = SEARCH_MODES.map(m => m.id).join(', ');
+const SEARCH_ALLOWED_FIELDS = ['mode', 'destination', 'point', 'radius', 'maxDetourMeters'];
+const SEARCH_DESTINATION_FIELDS = ['triggerId', 'latField', 'lngField'];
+const LEGACY_RADIUS_PARAMETER = 'radius';
+
+/** A key absent and a key set to JSON null are the same thing to the engine. */
+function declaredValue(obj, key) {
+  const v = obj?.[key];
+  return v === null ? undefined : v;
+}
+function hasKey(obj, key) {
+  return !!obj && Object.prototype.hasOwnProperty.call(obj, key);
+}
+function isPlainObject(v) {
+  return !!v && typeof v === 'object' && !Array.isArray(v);
+}
+
+/** Key order is not part of JsonObject equality, so it must not be part of this either. */
+function canonicalJson(value) {
+  if (value === undefined) return 'absent';
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (isPlainObject(value)) {
+    return `{${Object.keys(value).sort().map(k => `${JSON.stringify(k)}:${canonicalJson(value[k])}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+/** Mirrors RulesValidator.forEachSingleExpression, paths included. */
+function forEachSingleExpression(expr, path, action) {
+  if (!isPlainObject(expr)) return;
+  if (!Array.isArray(expr.expressions)) { action(expr, path); return; }
+  expr.expressions.forEach((e, i) => forEachSingleExpression(e, `${path}.expressions[${i}]`, action));
+}
+
+function isPlacesId(id) {
+  return typeof id === 'string' && id.startsWith(GOOGLE_NEARBY_PREFIX) && id.length > GOOGLE_NEARBY_PREFIX.length;
+}
+function isExternalSourceName(dataSource) {
+  return String(dataSource || '').toLowerCase() === 'external source';
+}
+function isPlacesExpressionJSON(expr) {
+  return isPlacesId(expr?.id) && isExternalSourceName(expr?.dataSource);
+}
+
+function searchNumberError(searchPath, field, value) {
+  const number = typeof value === 'number' ? value : null;
+  if (number !== null && Number.isInteger(number) && number >= 1) return null;
+  const quoted = typeof value === 'string' && Number.isFinite(Number(value)) && value.trim() !== '';
+  const spelling = quoted ? ' (a quoted number is a string)' : '';
+  return `${searchPath}.${field} must be an integer of at least 1${spelling} - got ${JSON.stringify(value)}`;
+}
+
+/**
+ * Mirrors RulesValidator.validateSearch so the panel says what CI will. Messages are
+ * kept word-for-word; only the rule prefix replaces the engine's "[i]." index.
+ */
+function validateSearch(rule, errors, warnings, prefix) {
+  const expressions = [];
+  const searching = new Set();
+  const blocksById = new Map();
+
+  forEachSingleExpression(rule?.triggerExpression, 'triggerExpression', (expr) => {
+    if (typeof expr.id === 'string' && typeof expr.dataSource === 'string') {
+      expressions.push({ id: expr.id, dataSource: expr.dataSource });
+    }
+    if (typeof expr.id !== 'string') return;
+    const block = declaredValue(expr, 'search');
+    if (block !== undefined) searching.add(expr.id);
+    if (!blocksById.has(expr.id)) blocksById.set(expr.id, new Set());
+    blocksById.get(expr.id).add(canonicalJson(block));
+  });
+
+  for (const [id, blocks] of blocksById) {
+    if (blocks.size > 1) {
+      errors.push(`${prefix}triggerExpression uses id '${id}' with different search blocks; variables and destination references require one search per trigger id within a rule`);
+    }
+  }
+
+  forEachSingleExpression(rule?.triggerExpression, 'triggerExpression', (expr, path) => {
+    const isPlaces = isPlacesExpressionJSON(expr);
+
+    if (declaredValue(expr, 'POI') !== undefined) {
+      warnings.push(isPlaces
+        ? `${prefix}${path}.POI is read nowhere; a fixed anchor is search.point with "mode": "near_point"`
+        : `${prefix}${path}.POI is read nowhere and can be removed; search is accepted only on ${GOOGLE_NEARBY_PREFIX}* expressions of External Source, so there is nothing to move it to here`);
+    }
+
+    if (isPlaces && Array.isArray(expr.conditions)) {
+      expr.conditions.forEach((co, ci) => {
+        if (!isPlainObject(co) || co.type !== 'Value' || co.parameter !== LEGACY_RADIUS_PARAMETER) return;
+        warnings.push(`${prefix}${path}.conditions[${ci}] 'radius' is superseded by search.radius: it is lifted into search.radius and is no longer evaluated`);
+        if (legacyRadiusValue(co.value) === null) {
+          errors.push(`${prefix}${path}.conditions[${ci}].value legacy radius must be a positive integer - got ${JSON.stringify(co.value)}`);
+        }
+      });
+    }
+
+    const element = declaredValue(expr, 'search');
+    if (element === undefined) return;
+
+    const searchPath = `${path}.search`;
+    if (!isPlainObject(element)) {
+      errors.push(`${prefix}${searchPath} must be an object`);
+      return;
+    }
+    const search = element;
+
+    if (!isPlaces) {
+      errors.push(`${prefix}${searchPath} is only supported on ${GOOGLE_NEARBY_PREFIX}* expressions of External Source; '${expr.id}' (${expr.dataSource}) has no request builder that reads it, so it would be silently ignored`);
+    }
+
+    for (const field of Object.keys(search)) {
+      if (!SEARCH_ALLOWED_FIELDS.includes(field)) {
+        errors.push(`${prefix}${searchPath}.${field} is not supported`);
+      }
+    }
+
+    const declaredMode = declaredValue(search, 'mode');
+    const modeString = typeof declaredMode === 'string' ? declaredMode : null;
+    const mode = SEARCH_MODES.some(m => m.id === modeString) ? modeString : null;
+    if (mode === null) {
+      if (declaredMode === undefined) {
+        errors.push(`${prefix}${searchPath}.mode is required and must be one of ${SEARCH_MODE_LIST}`);
+      } else if (modeString === null) {
+        errors.push(`${prefix}${searchPath}.mode must be a string, one of ${SEARCH_MODE_LIST} - got ${JSON.stringify(declaredMode)}`);
+      } else {
+        errors.push(`${prefix}${searchPath}.mode '${modeString}' is not one of ${SEARCH_MODE_LIST}. An unknown mode is never read as a nearby search`);
+      }
+    }
+
+    const hasDestination = hasKey(search, 'destination');
+    const hasPoint = hasKey(search, 'point');
+    const hasDetour = hasKey(search, 'maxDetourMeters');
+
+    if (mode !== null) {
+      const needsDestination = mode === 'along_route' || mode === 'near_destination';
+      if (needsDestination && !hasDestination) {
+        errors.push(`${prefix}${searchPath}.destination is required for mode '${mode}'`);
+      }
+      if (!needsDestination && hasDestination) {
+        errors.push(`${prefix}${searchPath}.destination is not allowed for mode '${mode}'`);
+      }
+      if (mode === 'near_point' && !hasPoint) {
+        errors.push(`${prefix}${searchPath}.point is required for mode '${mode}'`);
+      }
+      if (mode !== 'near_point' && hasPoint) {
+        errors.push(`${prefix}${searchPath}.point is not allowed for mode '${mode}'`);
+      }
+      if (mode !== 'along_route' && hasDetour) {
+        errors.push(`${prefix}${searchPath}.maxDetourMeters is only allowed for mode 'along_route'`);
+      }
+      if (mode === 'along_route' && !hasDetour) {
+        errors.push(`${prefix}${searchPath}.maxDetourMeters is required for mode '${mode}'`);
+      }
+    }
+
+    if (hasDestination) {
+      validateSearchDestination(search.destination, `${prefix}${searchPath}.destination`, expr.id, expressions, searching, errors, warnings);
+    }
+    if (hasPoint) {
+      validateSearchPoint(search.point, `${prefix}${searchPath}.point`, errors);
+    }
+
+    for (const field of ['radius', 'maxDetourMeters']) {
+      if (!hasKey(search, field)) continue;
+      const message = searchNumberError(`${prefix}${searchPath}`, field, search[field]);
+      if (message) errors.push(message);
+    }
+  });
+}
+
+function validateSearchDestination(element, path, ownId, expressions, searching, errors, warnings) {
+  if (!isPlainObject(element)) {
+    errors.push(`${path} must be an object`);
+    return;
+  }
+  for (const field of Object.keys(element)) {
+    if (!SEARCH_DESTINATION_FIELDS.includes(field)) {
+      errors.push(`${path}.${field} is not supported`);
+    }
+  }
+
+  for (const field of SEARCH_DESTINATION_FIELDS) {
+    const value = element[field];
+    if (typeof value !== 'string' || value.trim() === '') {
+      errors.push(`${path}.${field} must be a non-blank string`);
+    }
+  }
+  const triggerId = typeof element.triggerId === 'string' && element.triggerId.trim() !== '' ? element.triggerId : null;
+  if (triggerId === null) return;
+
+  if (triggerId === ownId) {
+    errors.push(`${path}.triggerId '${triggerId}' is the expression itself; the destination must be read from another trigger of the rule`);
+  } else if (!expressions.some(e => e.id === triggerId)) {
+    errors.push(`${path}.triggerId '${triggerId}' is not an expression of this rule (has: ${expressions.map(e => e.id).join(', ')}), so the destination could never resolve and the rule would never fire`);
+  } else if (searching.has(triggerId)) {
+    errors.push(`${path}.triggerId '${triggerId}' has a search block of its own; a destination cannot be read from another search`);
+  } else {
+    warnDestinationFields(element, path, triggerId, expressions, warnings);
+  }
+}
+
+/**
+ * The engine cannot see an endpoint's field catalogue, so it accepts any field names
+ * and only finds out at dispatch that the destination is unreadable. The builder has
+ * the catalogue and says so up front.
+ */
+function warnDestinationFields(element, path, triggerId, expressions, warnings) {
+  const named = ['latField', 'lngField'].every(f => typeof element[f] === 'string' && element[f].trim() !== '');
+  if (!named) return;
+  const dataSource = expressions.find(e => e.id === triggerId)?.dataSource;
+  const fields = destinationCoordinateFields(triggerId, dataSource);
+  const tail = 'so the destination could never resolve and the rule would never fire';
+  if (!fields) {
+    if (cannotSupplyDestination(triggerId, dataSource)) {
+      warnings.push(`${path}.triggerId '${triggerId}' returns no coordinates, ${tail}`);
+    }
+    return;
+  }
+  if (element.latField !== fields.lat || element.lngField !== fields.lng) {
+    warnings.push(`${path} reads '${element.latField}' / '${element.lngField}' from '${triggerId}', which returns '${fields.lat}' / '${fields.lng}', ${tail}`);
+  }
+}
+
+function validateSearchPoint(element, path, errors) {
+  if (!isPlainObject(element)) {
+    errors.push(`${path} must be an object with lat and lng`);
+    return;
+  }
+  for (const field of Object.keys(element)) {
+    if (field !== 'lat' && field !== 'lng') errors.push(`${path}.${field} is not supported`);
+  }
+  for (const [field, bound] of [['lat', 90], ['lng', 180]]) {
+    const present = hasKey(element, field);
+    const value = element[field];
+    const number = typeof value === 'number' && Number.isFinite(value) ? value : null;
+    if (number === null) {
+      errors.push(`${path}.${field} must be a number - got ${present ? JSON.stringify(value) : 'nothing'}`);
+    } else if (number < -bound || number > bound) {
+      errors.push(`${path}.${field} must be between -${bound} and ${bound} - got ${JSON.stringify(value)}`);
+    }
+  }
+}
+
+/** RuleMapper.liftLegacyRadius parses the whole string strictly and rejects anything below 1. */
+function legacyRadiusValue(value) {
+  if (typeof value === 'number') return Number.isInteger(value) && value > 0 ? value : null;
+  if (typeof value !== 'string' || !/^[+-]?\d+$/.test(value.trim())) return null;
+  const n = parseInt(value.trim(), 10);
+  return n > 0 ? n : null;
+}
+
+/**
+ * Mirrors RuleMapper.liftLegacyRadius: the largest legacy radius fills in an absent
+ * search.radius and every legacy condition goes away. An unparseable one is left in
+ * place so the validator reports it instead of the import quietly discarding it.
+ */
+function migrateLegacyRadius(expr) {
+  if (!isPlainObject(expr)) return;
+  if (Array.isArray(expr.expressions)) { expr.expressions.forEach(migrateLegacyRadius); return; }
+  if (!isPlacesExpressionJSON(expr) || !Array.isArray(expr.conditions)) return;
+
+  const legacy = expr.conditions.filter(c => isPlainObject(c) && c.type === 'Value' && c.parameter === LEGACY_RADIUS_PARAMETER);
+  if (!legacy.length) return;
+  const radii = legacy.map(c => legacyRadiusValue(c.value));
+  if (radii.some(r => r === null)) return;
+
+  const search = declaredValue(expr, 'search');
+  expr.search = isPlainObject(search) ? search : { mode: 'nearby' };
+  if (!hasKey(expr.search, 'radius') || expr.search.radius === null) {
+    expr.search.radius = Math.max(...radii);
+  }
+  expr.conditions = expr.conditions.filter(c => !legacy.includes(c));
+  if (!expr.conditions.length) delete expr.conditions;
+}
+
+/**
+ * Schema 1.2.0 dropped `destination.source` before it ever shipped, so the key is
+ * removed rather than translated: what is left of a 'trigger' destination is already
+ * the whole contract, and an 'app' destination has no expression at all and has to be
+ * pointed at a trigger by hand.
+ */
+function migrateSearchDestination(expr) {
+  if (!isPlainObject(expr)) return;
+  if (Array.isArray(expr.expressions)) { expr.expressions.forEach(migrateSearchDestination); return; }
+  const destination = declaredValue(declaredValue(expr, 'search') || {}, 'destination');
+  if (isPlainObject(destination)) delete destination.source;
 }
 
 /**
@@ -3372,6 +3948,8 @@ function highlightErrorFields(jsonArray) {
     if (bad.length) document.getElementById('section-follow-up')?.classList.add('card-error');
   }
 
+  highlightSearchFieldErrors(rule);
+
   // Condition-required triggers: highlight trigger cards missing conditions
   if (rule.triggerExpression) {
     highlightMissingConditions(triggerRoot, rule.triggerExpression);
@@ -3381,6 +3959,52 @@ function highlightErrorFields(jsonArray) {
   if (triggerRoot) {
     highlightConditionFieldErrors(triggerRoot);
   }
+}
+
+/**
+ * Marks the search inputs the engine would reject. Read off the built JSON rather
+ * than the DOM so a mode's forbidden fields, which are never emitted, stay unmarked.
+ */
+function highlightSearchFieldErrors(rule) {
+  const boxes = singleTriggerBoxes();
+  let index = 0;
+  forEachSingleExpression(rule?.triggerExpression, 'triggerExpression', (expr) => {
+    const box = boxes[index++];
+    const searchBox = box?.querySelector('[data-field="search-container"]');
+    const search = declaredValue(expr, 'search');
+    if (!searchBox || searchBox.classList.contains('hidden') || !isPlainObject(search)) return;
+
+    let bad = false;
+    const mark = (field) => {
+      bad = true;
+      searchBox.querySelector(`[data-field="${field}"]`)?.classList.add('field-error');
+    };
+    const mode = SEARCH_MODES.some(m => m.id === search.mode) ? search.mode : null;
+    if (!mode) mark('search-mode-group');
+
+    if (mode === 'along_route' || mode === 'near_destination') {
+      const dest = search.destination;
+      if (!isPlainObject(dest) || !dest.triggerId) {
+        mark('search-destination');
+      }
+      if (isPlainObject(dest)) {
+        for (const [field, input] of [['latField', 'search-dest-lat-field'], ['lngField', 'search-dest-lng-field']]) {
+          if (typeof dest[field] !== 'string' || !dest[field].trim()) mark(input);
+        }
+      }
+    }
+    if (mode === 'near_point') {
+      for (const [field, input, bound] of [['lat', 'search-point-lat', 90], ['lng', 'search-point-lng', 180]]) {
+        const v = search.point?.[field];
+        if (typeof v !== 'number' || !Number.isFinite(v) || v < -bound || v > bound) mark(input);
+      }
+    }
+    if (hasKey(search, 'radius') && searchNumberError('', 'radius', search.radius)) mark('search-radius');
+    if (mode === 'along_route' && (!hasKey(search, 'maxDetourMeters') || searchNumberError('', 'maxDetourMeters', search.maxDetourMeters))) {
+      mark('search-detour');
+    }
+    if (bad) box.closest('.item-card')?.classList.add('field-error');
+  });
 }
 
 function highlightMissingConditions(container, expr) {

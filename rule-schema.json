@@ -209,10 +209,18 @@
           "type": "integer",
           "enum": [1, 7, 14, 30],
           "description": "Time period for API data retrieval, set on the SINGLE trigger expression (not on the variable). Default 1. Applies to DRIVER_MEASUREMENTS_SCORE, TRIP_EVENTS, TRIP_DETAILS, THERAPY_SESSIONS and PATIENT_EXERCISES. The window runs backwards from now for every type except PATIENT_EXERCISES, where it runs forwards - dateRangeInDays 1 on patient_exercises means the next 24 hours."
+        },
+        "search": {
+          "$ref": "#/definitions/searchSpec",
+          "description": "Where a place search is anchored: near the vehicle, along the route to a destination, at the destination, or at a fixed point. Accepted only on google_nearby_* expressions of External Source - on any other endpoint it is an error, not a warning, because the request builder for that endpoint would silently ignore it."
         }
       },
       "additionalProperties": false,
       "allOf": [
+        {
+          "if": { "required": ["search"] },
+          "then": { "properties": { "id": { "pattern": "^google_nearby_.+" }, "dataSource": { "const": "External Source" } } }
+        },
         {
           "description": "Wellness triggers: restrict condition parameters and extractable keys to the fields actually emitted in wellness_measurement_taken attrs (see WellnessRepositoryImpl in FleetDrive-Android).",
           "if": {
@@ -635,7 +643,7 @@
 
     "poi": {
       "type": "object",
-      "description": "Point of Interest configuration for location-based triggers.",
+      "description": "Deprecated: parsed and then read nowhere. The validator warns on every POI block; use searchSpec.point for a fixed-coordinate search. Dropped in the next schema major.",
       "required": ["radius"],
       "properties": {
         "coordinates": {
@@ -652,6 +660,98 @@
         }
       },
       "additionalProperties": false
+    },
+
+    "searchSpec": {
+      "type": "object",
+      "description": "A search block on a google_nearby_* trigger expression. The engine forwards the mode and its anchors to the app as request parameters (searchMode, destinationLatitude, destinationLongitude, maxDetourMeters) and computes no geometry.",
+      "required": ["mode"],
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["nearby", "along_route", "near_destination", "near_point"],
+          "description": "nearby: the current position, within radius. along_route: the route from the current position to a destination, bounded by radius (reachability) and maxDetourMeters (deviation). near_destination: the destination, within radius. near_point: fixed coordinates, within radius. Anything else is a validation error - an unknown mode must never degrade to a nearby search."
+        },
+        "destination": {
+          "type": "object",
+          "description": "Where the destination is read from: the response of another trigger of the same rule. Required for along_route and near_destination, forbidden on nearby and near_point.",
+          "required": ["triggerId", "latField", "lngField"],
+          "properties": {
+            "triggerId": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S",
+              "description": "Id of another SINGLE trigger of the same rule whose response event carries the coordinates. May not be the expression itself, and may not be an expression that has a search block of its own."
+            },
+            "latField": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S",
+              "description": "Attribute name of the latitude on that event. For jobs endpoints: nextJobLat."
+            },
+            "lngField": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S",
+              "description": "Attribute name of the longitude on that event. For jobs endpoints: nextJobLng."
+            }
+          },
+          "additionalProperties": false
+        },
+        "point": {
+          "type": "object",
+          "description": "Fixed coordinates. Required for near_point, forbidden on other modes. This is what POI.coordinates was meant to be.",
+          "required": ["lat", "lng"],
+          "properties": {
+            "lat": { "type": "number", "minimum": -90, "maximum": 90 },
+            "lng": { "type": "number", "minimum": -180, "maximum": 180 }
+          },
+          "additionalProperties": false
+        },
+        "radius": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Search extent from the anchor in metres, default 500. For nearby, near_destination and near_point it is a straight-line radius. For along_route it is the maximum driving distance from the origin at which a result may sit - the reachability bound."
+        },
+        "maxDetourMeters": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Required for along_route: the maximum additional driving distance a result may add to the trip, detour(p) = distance(origin -> p -> destination) - distance(origin -> destination), using driving distance. Forbidden on other modes."
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": { "properties": { "mode": { "const": "along_route" } }, "required": ["mode"] },
+          "then": { "required": ["maxDetourMeters"] }
+        },
+        {
+          "if": { "properties": { "mode": { "enum": ["along_route", "near_destination"] } }, "required": ["mode"] },
+          "then": { "required": ["destination"] }
+        },
+        {
+          "if": { "properties": { "mode": { "const": "near_point" } }, "required": ["mode"] },
+          "then": { "required": ["point"] }
+        },
+        {
+          "if": { "properties": { "mode": { "const": "nearby" } }, "required": ["mode"] },
+          "then": {
+            "not": { "anyOf": [ { "required": ["destination"] }, { "required": ["point"] }, { "required": ["maxDetourMeters"] } ] }
+          }
+        },
+        {
+          "if": { "properties": { "mode": { "enum": ["near_destination", "near_point"] } }, "required": ["mode"] },
+          "then": { "not": { "required": ["maxDetourMeters"] } }
+        },
+        {
+          "if": { "properties": { "mode": { "enum": ["along_route", "near_destination"] } }, "required": ["mode"] },
+          "then": { "not": { "required": ["point"] } }
+        },
+        {
+          "if": { "properties": { "mode": { "const": "near_point" } }, "required": ["mode"] },
+          "then": { "not": { "required": ["destination"] } }
+        }
+      ]
     },
 
     "output": {
