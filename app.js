@@ -343,24 +343,92 @@ function _setTopicField(topic, key, raw) {
   onFormChange();
 }
 
+// Both are stamped into rule-schema.json by the contract build and promoted by loadSchema();
+// the literals are the fallback for a failed fetch only. SCHEMA_VERSION is the grammar this
+// bundle can express, RELEASED_SCHEMA_VERSION the highest any published engine accepts — they
+// differ while a schema is built but not yet released.
+let SCHEMA_VERSION = '1.2.0';
+let RELEASED_SCHEMA_VERSION = '1.1.0';
+
+const SCHEMA_BASELINE = '1.0.0';
+
+// Grammar added since the baseline, newest first. A document is stamped with the lowest version
+// that still reads it in full, never with the builder's own: an engine rejects a document stamped
+// above its ceiling and drops every rule in it, so inheriting a version the rules do not use would
+// disable rule sets that would have run fine.
+const SCHEMA_FEATURES = [
+  ['1.2.0', usesSearchOrChoiceOptions],
+  ['1.1.0', usesNonStringComparisonValue],
+];
+
+function requiredSchemaVersion(rulesArray) {
+  const match = SCHEMA_FEATURES.find(([, usedBy]) => rulesArray.some(r => r && usedBy(r)));
+  return match ? match[0] : SCHEMA_BASELINE;
+}
+
+function eachExpression(expr, visit) {
+  if (!expr || typeof expr !== 'object') return;
+  visit(expr);
+  for (const child of expr.expressions || []) eachExpression(child, visit);
+}
+
+function usesSearchOrChoiceOptions(rule) {
+  if (rule.followUp && rule.followUp.options) return true;
+  let found = false;
+  eachExpression(rule.triggerExpression, e => { if (e.search) found = true; });
+  return found;
+}
+
+function usesNonStringComparisonValue(rule) {
+  const typed = c => c && 'value' in c && (Array.isArray(c.value)
+    ? c.value.some(v => typeof v !== 'string')
+    : typeof c.value !== 'string');
+
+  let found = false;
+  eachExpression(rule.triggerExpression, e => {
+    if ((e.conditions || []).some(typed)) found = true;
+  });
+  for (const v of (rule.output && rule.output.variables) || []) {
+    if ((v.filters || []).some(typed)) found = true;
+  }
+  return found;
+}
+
+function compareSchemaVersions(a, b) {
+  const pa = String(a).split('.').map(Number);
+  const pb = String(b).split('.').map(Number);
+  for (let i = 0; i < 3; i++) {
+    if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0);
+  }
+  return 0;
+}
+
 /**
- * The exported/published document. Stays a bare rules array until a topic is
- * used, so sets that don't need topics keep working on engine versions that
- * predate the envelope shape. The registry carries only topics in use — configs
- * for removed topics would otherwise accumulate forever.
+ * The exported/published document, always in the envelope shape.
+ *
+ * A bare rules array has nowhere to carry schemaVersion, and an unstamped
+ * document is read as the 1.0.0 baseline whatever grammar it actually uses — so
+ * the array shape silently mislabels every rule written since. Nothing is lost
+ * by dropping it: the envelope landed in engine 0.0.75 and schemaVersion in
+ * 0.0.78, so any engine that reads the stamp already reads the envelope.
+ *
+ * The registry carries only topics in use — configs for removed topics would
+ * otherwise accumulate forever.
  */
 function buildDocument(rulesArray) {
   const used = new Set(rulesArray.map(r => r && r.topic).filter(Boolean));
-  if (used.size === 0) return rulesArray;
   const topics = {};
   for (const t of [...used].sort()) topics[t] = topicConfigs[t] || {};
-  return { topics, rules: rulesArray };
+  return {
+    schemaVersion: requiredSchemaVersion(rulesArray),
+    ...(used.size ? { topics } : {}),
+    rules: rulesArray
+  };
 }
 
 /** Topics block for a publish payload, or null when the set uses no topics. */
 function _topicsBlock(rulesArray) {
-  const doc = buildDocument(rulesArray);
-  return Array.isArray(doc) ? null : doc.topics;
+  return buildDocument(rulesArray).topics || null;
 }
 
 /** Post-import net: surface probable topic typos that arrived in a file. */
@@ -415,6 +483,8 @@ async function loadSchema() {
     const res = await fetch('./rule-schema.json');
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     schema = await res.json();
+    if (typeof schema['x-schemaVersion'] === 'string') SCHEMA_VERSION = schema['x-schemaVersion'];
+    if (typeof schema['x-releasedSchema'] === 'string') RELEASED_SCHEMA_VERSION = schema['x-releasedSchema'];
   } catch (e) {
     console.warn('Could not fetch rule-schema.json, validation disabled:', e.message);
     showToast('Schema not loaded — validation unavailable. Serve via HTTP for full features.');
@@ -773,6 +843,7 @@ function renderSingleTrigger(container, depth, data = null) {
         sel.append(h('option', { value: ep.id }, `${ep.label} \u2014 ${ep.description}`));
       }
       if (prevValue) sel.value = prevValue;
+      sel.addEventListener('change', onFormChange);
       idContainer.append(sel);
     } else {
       const scope = document.getElementById('rule-scope')?.value || 'global';
@@ -3223,6 +3294,18 @@ function validateRule(jsonArray) {
     }
   }
 
+  // The stamp is what an engine checks before reading anything, and it rejects the whole
+  // document rather than the offending rule. Publishing a set that needs grammar no released
+  // engine has therefore takes down every rule in it, including ones that ran yesterday.
+  const needs = requiredSchemaVersion(jsonArray);
+  if (compareSchemaVersions(needs, RELEASED_SCHEMA_VERSION) > 0) {
+    warnings.push(
+      `This set uses schema ${needs} grammar, and the newest released engine accepts up to ` +
+      `${RELEASED_SCHEMA_VERSION}. Devices on it reject the whole document — every rule here, not ` +
+      `only the ones using the new grammar. Hold it back until the release carrying schema ${needs} ships.`
+    );
+  }
+
   // A rule set is deployed to one app, so it must target a single product.
   // The product switch blocks this while editing, but an uploaded JSON file can
   // still arrive mixed — this is where that gets caught.
@@ -4419,6 +4502,7 @@ async function submitPublish() {
     const topics = _topicsBlock(rulesArray);
     const payload = {
       _meta: { versionId, name, publishedAt, ruleCount: rulesArray.length, description },
+      schemaVersion: requiredSchemaVersion(rulesArray),
       ...(topics ? { topics } : {}),
       rules: rulesArray
     };
@@ -4474,6 +4558,7 @@ async function updateLoadedVersion() {
     const topics = _topicsBlock(rulesArray);
     const payload = {
       _meta: { ...existingData._meta, ruleCount: rulesArray.length, updatedAt },
+      schemaVersion: requiredSchemaVersion(rulesArray),
       ...(topics ? { topics } : {}),
       rules: rulesArray
     };

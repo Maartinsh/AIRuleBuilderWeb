@@ -406,11 +406,17 @@ const FILTER_FIELDS = {
   // Google nearby search — items of the `places` array (_rawPlaces), nearest
   // first. displayName and location are nested objects, so they cannot be
   // filtered on; a follow-up option label reaches them by dotted path.
+  // The four distance fields are measured by the mobile app rather than returned
+  // by Google, and the last two only exist for mode 'along_route'.
   places: [
     { id: 'id', type: 'string', label: 'Google place id' },
     { id: 'formattedAddress', type: 'string', label: 'address' },
     { id: 'rating', type: 'double', label: 'rating 1-5' },
     { id: 'businessStatus', type: 'string', label: 'OPERATIONAL / CLOSED_TEMPORARILY / CLOSED_PERMANENTLY' },
+    { id: 'distanceKm', type: 'double', label: 'distance in km' },
+    { id: 'distanceLabel', type: 'string', label: 'distance said aloud — "4.2 km ahead" / "1.1 km away"' },
+    { id: 'routeDistanceMeters', type: 'int', label: 'driving distance from here (along_route only)' },
+    { id: 'detourMeters', type: 'int', label: 'extra driving this stop costs (along_route only)' },
   ],
   // MojoPortal therapy_sessions — items of the `sessions` array (_rawSessions),
   // sorted oldest to newest. Field names are the portal's own, so they are
@@ -1459,12 +1465,12 @@ const API_ENDPOINTS = {
     },
     {
       id: 'google_nearby_gas_station',
-      label: 'Nearby Gas Station',
-      description: 'GOOGLE_NEARBY_SEARCH — nearby gas/fuel stations',
+      label: 'Gas Station',
+      description: 'GOOGLE_NEARBY_SEARCH — gas/fuel stations, positioned by Place Search',
       apiType: 'GOOGLE_NEARBY_SEARCH',
       params: [
         { id: 'placesFound', label: 'number of places found' },
-        { id: 'places', label: 'place list — name & address', source: 'places', fields: ['displayName', 'formattedAddress'] },
+        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['displayName', 'formattedAddress', 'distanceLabel'] },
         { id: 'closestPlaceName', label: 'closest station name' },
         { id: 'closestPlaceAddress', label: 'closest station address' },
         { id: 'closestPlaceRating', label: 'closest station rating' },
@@ -1476,12 +1482,12 @@ const API_ENDPOINTS = {
     },
     {
       id: 'google_nearby_coffee_shop',
-      label: 'Nearby Coffee Shop',
-      description: 'GOOGLE_NEARBY_SEARCH — nearby coffee shops',
+      label: 'Coffee Shop',
+      description: 'GOOGLE_NEARBY_SEARCH — coffee shops, positioned by Place Search',
       apiType: 'GOOGLE_NEARBY_SEARCH',
       params: [
         { id: 'placesFound', label: 'number of places found' },
-        { id: 'places', label: 'place list — name & address', source: 'places', fields: ['displayName', 'formattedAddress'] },
+        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['displayName', 'formattedAddress', 'distanceLabel'] },
         { id: 'closestPlaceName', label: 'closest shop name' },
         { id: 'closestPlaceAddress', label: 'closest shop address' },
         { id: 'closestPlaceRating', label: 'closest shop rating' },
@@ -1491,12 +1497,12 @@ const API_ENDPOINTS = {
     },
     {
       id: 'google_nearby_restaurant',
-      label: 'Nearby Restaurant',
-      description: 'GOOGLE_NEARBY_SEARCH — nearby restaurants',
+      label: 'Restaurant',
+      description: 'GOOGLE_NEARBY_SEARCH — restaurants, positioned by Place Search',
       apiType: 'GOOGLE_NEARBY_SEARCH',
       params: [
         { id: 'placesFound', label: 'number of places found' },
-        { id: 'places', label: 'place list — name & address', source: 'places', fields: ['displayName', 'formattedAddress'] },
+        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['displayName', 'formattedAddress', 'distanceLabel'] },
         { id: 'closestPlaceName', label: 'closest restaurant name' },
         { id: 'closestPlaceAddress', label: 'closest restaurant address' },
         { id: 'closestPlaceRating', label: 'closest restaurant rating' },
@@ -1505,12 +1511,12 @@ const API_ENDPOINTS = {
     },
     {
       id: 'google_nearby_fast_food_restaurant',
-      label: 'Nearby Fast Food',
-      description: 'GOOGLE_NEARBY_SEARCH — nearby fast food restaurants',
+      label: 'Fast Food',
+      description: 'GOOGLE_NEARBY_SEARCH — fast food restaurants, positioned by Place Search',
       apiType: 'GOOGLE_NEARBY_SEARCH',
       params: [
         { id: 'placesFound', label: 'number of places found' },
-        { id: 'places', label: 'place list — name & address', source: 'places', fields: ['displayName', 'formattedAddress'] },
+        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['displayName', 'formattedAddress', 'distanceLabel'] },
         { id: 'closestPlaceName', label: 'closest place name' },
         { id: 'closestPlaceAddress', label: 'closest place address' },
         { id: 'closestPlaceRating', label: 'closest place rating' },
@@ -1518,12 +1524,12 @@ const API_ENDPOINTS = {
     },
     {
       id: 'google_nearby_cafe',
-      label: 'Nearby Cafe',
-      description: 'GOOGLE_NEARBY_SEARCH — nearby cafes',
+      label: 'Cafe',
+      description: 'GOOGLE_NEARBY_SEARCH — cafes, positioned by Place Search',
       apiType: 'GOOGLE_NEARBY_SEARCH',
       params: [
         { id: 'placesFound', label: 'number of places found' },
-        { id: 'places', label: 'place list — name & address', source: 'places', fields: ['displayName', 'formattedAddress'] },
+        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['displayName', 'formattedAddress', 'distanceLabel'] },
         { id: 'closestPlaceName', label: 'closest cafe name' },
         { id: 'closestPlaceAddress', label: 'closest cafe address' },
         { id: 'closestPlaceRating', label: 'closest cafe rating' },
@@ -1531,12 +1537,12 @@ const API_ENDPOINTS = {
     },
     {
       id: 'google_nearby_pharmacy',
-      label: 'Nearby Pharmacy',
-      description: 'GOOGLE_NEARBY_SEARCH — nearby pharmacies',
+      label: 'Pharmacy',
+      description: 'GOOGLE_NEARBY_SEARCH — pharmacies, positioned by Place Search',
       apiType: 'GOOGLE_NEARBY_SEARCH',
       params: [
         { id: 'placesFound', label: 'number of places found' },
-        { id: 'places', label: 'place list — name & address', source: 'places', fields: ['displayName', 'formattedAddress'] },
+        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['displayName', 'formattedAddress', 'distanceLabel'] },
         { id: 'closestPlaceName', label: 'closest pharmacy name' },
         { id: 'closestPlaceAddress', label: 'closest pharmacy address' },
         { id: 'closestPlaceRating', label: 'closest pharmacy rating' },
@@ -1544,84 +1550,84 @@ const API_ENDPOINTS = {
     },
     {
       id: 'google_nearby_hospital',
-      label: 'Nearby Hospital',
-      description: 'GOOGLE_NEARBY_SEARCH — nearby hospitals',
+      label: 'Hospital',
+      description: 'GOOGLE_NEARBY_SEARCH — hospitals, positioned by Place Search',
       apiType: 'GOOGLE_NEARBY_SEARCH',
       params: [
         { id: 'placesFound', label: 'number of places found' },
-        { id: 'places', label: 'place list — name & address', source: 'places', fields: ['displayName', 'formattedAddress'] },
+        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['displayName', 'formattedAddress', 'distanceLabel'] },
         { id: 'closestPlaceName', label: 'closest hospital name' },
         { id: 'closestPlaceAddress', label: 'closest hospital address' },
       ]
     },
     {
       id: 'google_nearby_atm',
-      label: 'Nearby ATM',
-      description: 'GOOGLE_NEARBY_SEARCH — nearby ATMs',
+      label: 'ATM',
+      description: 'GOOGLE_NEARBY_SEARCH — ATMs, positioned by Place Search',
       apiType: 'GOOGLE_NEARBY_SEARCH',
       params: [
         { id: 'placesFound', label: 'number of places found' },
-        { id: 'places', label: 'place list — name & address', source: 'places', fields: ['displayName', 'formattedAddress'] },
+        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['displayName', 'formattedAddress', 'distanceLabel'] },
         { id: 'closestPlaceName', label: 'closest ATM name' },
         { id: 'closestPlaceAddress', label: 'closest ATM address' },
       ]
     },
     {
       id: 'google_nearby_parking',
-      label: 'Nearby Parking',
-      description: 'GOOGLE_NEARBY_SEARCH — nearby parking',
+      label: 'Parking',
+      description: 'GOOGLE_NEARBY_SEARCH — parking, positioned by Place Search',
       apiType: 'GOOGLE_NEARBY_SEARCH',
       params: [
         { id: 'placesFound', label: 'number of places found' },
-        { id: 'places', label: 'place list — name & address', source: 'places', fields: ['displayName', 'formattedAddress'] },
+        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['displayName', 'formattedAddress', 'distanceLabel'] },
         { id: 'closestPlaceName', label: 'closest parking name' },
         { id: 'closestPlaceAddress', label: 'closest parking address' },
       ]
     },
     {
       id: 'google_nearby_electric_vehicle_charging_station',
-      label: 'Nearby EV Charging',
-      description: 'GOOGLE_NEARBY_SEARCH — nearby EV charging stations',
+      label: 'EV Charging',
+      description: 'GOOGLE_NEARBY_SEARCH — EV charging stations, positioned by Place Search',
       apiType: 'GOOGLE_NEARBY_SEARCH',
       params: [
         { id: 'placesFound', label: 'number of places found' },
-        { id: 'places', label: 'place list — name & address', source: 'places', fields: ['displayName', 'formattedAddress'] },
+        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['displayName', 'formattedAddress', 'distanceLabel'] },
         { id: 'closestPlaceName', label: 'closest station name' },
         { id: 'closestPlaceAddress', label: 'closest station address' },
       ]
     },
     {
       id: 'google_nearby_car_wash',
-      label: 'Nearby Car Wash',
-      description: 'GOOGLE_NEARBY_SEARCH — nearby car washes',
+      label: 'Car Wash',
+      description: 'GOOGLE_NEARBY_SEARCH — car washes, positioned by Place Search',
       apiType: 'GOOGLE_NEARBY_SEARCH',
       params: [
         { id: 'placesFound', label: 'number of places found' },
-        { id: 'places', label: 'place list — name & address', source: 'places', fields: ['displayName', 'formattedAddress'] },
+        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['displayName', 'formattedAddress', 'distanceLabel'] },
         { id: 'closestPlaceName', label: 'closest car wash name' },
         { id: 'closestPlaceAddress', label: 'closest car wash address' },
       ]
     },
     {
       id: 'google_nearby_car_repair',
-      label: 'Nearby Car Repair',
-      description: 'GOOGLE_NEARBY_SEARCH — nearby car repair shops',
+      label: 'Car Repair',
+      description: 'GOOGLE_NEARBY_SEARCH — car repair shops, positioned by Place Search',
       apiType: 'GOOGLE_NEARBY_SEARCH',
       params: [
         { id: 'placesFound', label: 'number of places found' },
-        { id: 'places', label: 'place list — name & address', source: 'places', fields: ['displayName', 'formattedAddress'] },
+        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['displayName', 'formattedAddress', 'distanceLabel'] },
         { id: 'closestPlaceName', label: 'closest repair shop name' },
         { id: 'closestPlaceAddress', label: 'closest repair shop address' },
       ]
     },
     {
       id: 'google_nearby_convenience_store',
-      label: 'Nearby Convenience Store',
-      description: 'GOOGLE_NEARBY_SEARCH — nearby convenience stores',
+      label: 'Convenience Store',
+      description: 'GOOGLE_NEARBY_SEARCH — convenience stores, positioned by Place Search',
       apiType: 'GOOGLE_NEARBY_SEARCH',
       params: [
         { id: 'placesFound', label: 'number of places found' },
-        { id: 'places', label: 'place list — name & address', source: 'places', fields: ['displayName', 'formattedAddress'] },
+        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['displayName', 'formattedAddress', 'distanceLabel'] },
         { id: 'closestPlaceName', label: 'closest store name' },
         { id: 'closestPlaceAddress', label: 'closest store address' },
       ]

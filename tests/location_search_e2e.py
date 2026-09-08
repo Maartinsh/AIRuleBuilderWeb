@@ -65,8 +65,14 @@ def load(page, rule):
 
 def validate(page, rule=None):
     if rule is None:
-        return page.evaluate("() => validateRule([buildRuleJSON()])")
-    return page.evaluate("(rule) => validateRule([rule])", rule)
+        result = page.evaluate("() => validateRule([buildRuleJSON()])")
+    else:
+        result = page.evaluate("(rule) => validateRule([rule])", rule)
+    # Every search rule needs schema 1.2.0, so while that schema is unreleased the release-gate
+    # warning is on all of them and says nothing about the grammar under test here.
+    # schema_version_e2e.py is what asserts it appears.
+    result["warnings"] = [w for w in result["warnings"] if "reject the whole document" not in w]
+    return result
 
 
 def search_state(page, index=0):
