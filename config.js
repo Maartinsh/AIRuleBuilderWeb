@@ -99,21 +99,18 @@ const TRIGGER_IDS = {
  * fields, never against the endpoint's raw items — those are reached through a
  * variable with source 'places'.
  *
- * rating and businessStatus are Google-era: the MZone endpoint's body is not
- * captured yet, so the mapper reads them if they are there and a condition on
- * one is simply never satisfied if they are not.
+ * The engine still maps address, rating and businessStatus for the Google items
+ * it can be handed; they are absent here because the MZone endpoint returns
+ * none of them, so a condition on one could only ever fail to match.
  */
 const NEARBY_PLACES_PARAMS = [
   { id: 'placesFound', type: 'int', label: 'number of places found' },
   { id: 'closestPlaceName', type: 'string', label: 'closest place name (use "contains" for brand match, e.g. "circle")' },
-  { id: 'closestPlaceAddress', type: 'string', label: 'closest place address' },
-  { id: 'closestPlaceCategory', type: 'string', label: 'closest place category' },
   { id: 'closestPlaceDistanceMeters', type: 'double', label: 'closest place distance from the anchor (m)' },
   { id: 'closestPlaceLat', type: 'double', label: 'closest place latitude' },
   { id: 'closestPlaceLng', type: 'double', label: 'closest place longitude' },
   { id: 'closestPlaceId', type: 'string', label: 'closest place id' },
-  { id: 'closestPlaceRating', type: 'double', label: 'closest place rating — only if the endpoint returns one' },
-  { id: 'closestPlaceBusinessStatus', type: 'string', label: 'closest place business status — only if the endpoint returns one' }
+  { id: 'closestPlaceCategory', type: 'int', label: 'closest place category code' }
 ];
 
 /**
@@ -457,25 +454,26 @@ const FILTER_FIELDS = {
     { id: 'eventType_Description', type: 'string', label: 'event type description' },
   ],
   // Place search — items of the `places` array (_rawPlaces), nearest first.
-  // The three distance fields are measured by the mobile app rather than
-  // returned by the endpoint, and detourMeters only exists for 'along_route'.
+  // Every field here is one the endpoint was observed to return, plus the two
+  // the mobile app decorates each item with (distanceLabel always, detourMeters
+  // for 'along_route' only).
   //
-  // The endpoint's per-item field names are not captured yet
-  // (NEARBY_PLACES_MZONE.md §4.0), so PlaceFieldAliases in the engine tries
-  // several spellings per field: a rule asking for 'name' reads an item that
-  // spells it 'displayName', and vice versa. These are the names to author
-  // with; Google's spellings still resolve, which is what keeps deployed
+  // There is deliberately no address: the data is OpenStreetMap-derived and
+  // carries none, so a rule asking for one would silently extract nothing. Use
+  // latitude/longitude if a rule needs to place a result, and resolve them to
+  // an address downstream. Google's spellings still resolve through
+  // PlaceFieldAliases in the engine, which is what keeps deployed
   // google_nearby_* rules working.
   places: [
     { id: 'name', type: 'string', label: 'place name' },
-    { id: 'address', type: 'string', label: 'address' },
-    { id: 'category', type: 'string', label: 'place category (e.g. FuelStation)' },
-    { id: 'id', type: 'string', label: 'place id' },
+    { id: 'distanceLabel', type: 'string', label: 'distance said aloud — "4.2 km ahead" / "1.1 km away"' },
+    { id: 'distanceMeters', type: 'double', label: 'distance from the anchor (m)' },
+    { id: 'detourMeters', type: 'int', label: 'extra distance this stop costs (along_route only)' },
     { id: 'latitude', type: 'double', label: 'latitude' },
     { id: 'longitude', type: 'double', label: 'longitude' },
-    { id: 'distanceMeters', type: 'int', label: 'distance from the anchor (m)' },
-    { id: 'distanceLabel', type: 'string', label: 'distance said aloud — "4.2 km ahead" / "1.1 km away"' },
-    { id: 'detourMeters', type: 'int', label: 'extra distance this stop costs (along_route only)' },
+    { id: 'id', type: 'string', label: 'place id, e.g. "node/1714412615"' },
+    { id: 'description', type: 'string', label: 'description — mirrors the name on most places' },
+    { id: 'category', type: 'int', label: 'category code, not its name — FuelStation comes back as 3' },
   ],
   // MojoPortal therapy_sessions — items of the `sessions` array (_rawSessions),
   // sorted oldest to newest. Field names are the portal's own, so they are
@@ -1491,14 +1489,12 @@ const API_ENDPOINTS = {
       apiType: 'NEARBY_PLACES',
       params: [
         { id: 'placesFound', label: 'number of places found' },
-        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
+        { id: 'places', label: 'place list — name & distance', source: 'places', fields: ['name', 'distanceLabel'] },
         { id: 'closestPlaceName', label: 'closest place name' },
-        { id: 'closestPlaceAddress', label: 'closest place address' },
         { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
         { id: 'closestPlaceLat', label: 'closest place latitude' },
         { id: 'closestPlaceLng', label: 'closest place longitude' },
         { id: 'placeNames', label: 'all place names (list)' },
-        { id: 'placeAddresses', label: 'all place addresses (list)' },
       ]
     },
     {
@@ -1508,14 +1504,12 @@ const API_ENDPOINTS = {
       apiType: 'NEARBY_PLACES',
       params: [
         { id: 'placesFound', label: 'number of places found' },
-        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
+        { id: 'places', label: 'place list — name & distance', source: 'places', fields: ['name', 'distanceLabel'] },
         { id: 'closestPlaceName', label: 'closest place name' },
-        { id: 'closestPlaceAddress', label: 'closest place address' },
         { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
         { id: 'closestPlaceLat', label: 'closest place latitude' },
         { id: 'closestPlaceLng', label: 'closest place longitude' },
         { id: 'placeNames', label: 'all place names (list)' },
-        { id: 'placeAddresses', label: 'all place addresses (list)' },
       ]
     },
     {
@@ -1525,14 +1519,12 @@ const API_ENDPOINTS = {
       apiType: 'NEARBY_PLACES',
       params: [
         { id: 'placesFound', label: 'number of places found' },
-        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
+        { id: 'places', label: 'place list — name & distance', source: 'places', fields: ['name', 'distanceLabel'] },
         { id: 'closestPlaceName', label: 'closest place name' },
-        { id: 'closestPlaceAddress', label: 'closest place address' },
         { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
         { id: 'closestPlaceLat', label: 'closest place latitude' },
         { id: 'closestPlaceLng', label: 'closest place longitude' },
         { id: 'placeNames', label: 'all place names (list)' },
-        { id: 'placeAddresses', label: 'all place addresses (list)' },
       ]
     },
     {
@@ -1542,14 +1534,12 @@ const API_ENDPOINTS = {
       apiType: 'NEARBY_PLACES',
       params: [
         { id: 'placesFound', label: 'number of places found' },
-        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
+        { id: 'places', label: 'place list — name & distance', source: 'places', fields: ['name', 'distanceLabel'] },
         { id: 'closestPlaceName', label: 'closest place name' },
-        { id: 'closestPlaceAddress', label: 'closest place address' },
         { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
         { id: 'closestPlaceLat', label: 'closest place latitude' },
         { id: 'closestPlaceLng', label: 'closest place longitude' },
         { id: 'placeNames', label: 'all place names (list)' },
-        { id: 'placeAddresses', label: 'all place addresses (list)' },
       ]
     },
     {
@@ -1559,14 +1549,12 @@ const API_ENDPOINTS = {
       apiType: 'NEARBY_PLACES',
       params: [
         { id: 'placesFound', label: 'number of places found' },
-        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
+        { id: 'places', label: 'place list — name & distance', source: 'places', fields: ['name', 'distanceLabel'] },
         { id: 'closestPlaceName', label: 'closest place name' },
-        { id: 'closestPlaceAddress', label: 'closest place address' },
         { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
         { id: 'closestPlaceLat', label: 'closest place latitude' },
         { id: 'closestPlaceLng', label: 'closest place longitude' },
         { id: 'placeNames', label: 'all place names (list)' },
-        { id: 'placeAddresses', label: 'all place addresses (list)' },
       ]
     },
     {
@@ -1576,14 +1564,12 @@ const API_ENDPOINTS = {
       apiType: 'NEARBY_PLACES',
       params: [
         { id: 'placesFound', label: 'number of places found' },
-        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
+        { id: 'places', label: 'place list — name & distance', source: 'places', fields: ['name', 'distanceLabel'] },
         { id: 'closestPlaceName', label: 'closest place name' },
-        { id: 'closestPlaceAddress', label: 'closest place address' },
         { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
         { id: 'closestPlaceLat', label: 'closest place latitude' },
         { id: 'closestPlaceLng', label: 'closest place longitude' },
         { id: 'placeNames', label: 'all place names (list)' },
-        { id: 'placeAddresses', label: 'all place addresses (list)' },
       ]
     },
     {
@@ -1593,14 +1579,12 @@ const API_ENDPOINTS = {
       apiType: 'NEARBY_PLACES',
       params: [
         { id: 'placesFound', label: 'number of places found' },
-        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
+        { id: 'places', label: 'place list — name & distance', source: 'places', fields: ['name', 'distanceLabel'] },
         { id: 'closestPlaceName', label: 'closest place name' },
-        { id: 'closestPlaceAddress', label: 'closest place address' },
         { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
         { id: 'closestPlaceLat', label: 'closest place latitude' },
         { id: 'closestPlaceLng', label: 'closest place longitude' },
         { id: 'placeNames', label: 'all place names (list)' },
-        { id: 'placeAddresses', label: 'all place addresses (list)' },
       ]
     },
     {
@@ -1610,14 +1594,12 @@ const API_ENDPOINTS = {
       apiType: 'NEARBY_PLACES',
       params: [
         { id: 'placesFound', label: 'number of places found' },
-        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
+        { id: 'places', label: 'place list — name & distance', source: 'places', fields: ['name', 'distanceLabel'] },
         { id: 'closestPlaceName', label: 'closest place name' },
-        { id: 'closestPlaceAddress', label: 'closest place address' },
         { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
         { id: 'closestPlaceLat', label: 'closest place latitude' },
         { id: 'closestPlaceLng', label: 'closest place longitude' },
         { id: 'placeNames', label: 'all place names (list)' },
-        { id: 'placeAddresses', label: 'all place addresses (list)' },
       ]
     },
     {
@@ -1627,14 +1609,12 @@ const API_ENDPOINTS = {
       apiType: 'NEARBY_PLACES',
       params: [
         { id: 'placesFound', label: 'number of places found' },
-        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
+        { id: 'places', label: 'place list — name & distance', source: 'places', fields: ['name', 'distanceLabel'] },
         { id: 'closestPlaceName', label: 'closest place name' },
-        { id: 'closestPlaceAddress', label: 'closest place address' },
         { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
         { id: 'closestPlaceLat', label: 'closest place latitude' },
         { id: 'closestPlaceLng', label: 'closest place longitude' },
         { id: 'placeNames', label: 'all place names (list)' },
-        { id: 'placeAddresses', label: 'all place addresses (list)' },
       ]
     },
     {
@@ -1644,14 +1624,12 @@ const API_ENDPOINTS = {
       apiType: 'NEARBY_PLACES',
       params: [
         { id: 'placesFound', label: 'number of places found' },
-        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
+        { id: 'places', label: 'place list — name & distance', source: 'places', fields: ['name', 'distanceLabel'] },
         { id: 'closestPlaceName', label: 'closest place name' },
-        { id: 'closestPlaceAddress', label: 'closest place address' },
         { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
         { id: 'closestPlaceLat', label: 'closest place latitude' },
         { id: 'closestPlaceLng', label: 'closest place longitude' },
         { id: 'placeNames', label: 'all place names (list)' },
-        { id: 'placeAddresses', label: 'all place addresses (list)' },
       ]
     },
     {
@@ -1661,14 +1639,12 @@ const API_ENDPOINTS = {
       apiType: 'NEARBY_PLACES',
       params: [
         { id: 'placesFound', label: 'number of places found' },
-        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
+        { id: 'places', label: 'place list — name & distance', source: 'places', fields: ['name', 'distanceLabel'] },
         { id: 'closestPlaceName', label: 'closest place name' },
-        { id: 'closestPlaceAddress', label: 'closest place address' },
         { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
         { id: 'closestPlaceLat', label: 'closest place latitude' },
         { id: 'closestPlaceLng', label: 'closest place longitude' },
         { id: 'placeNames', label: 'all place names (list)' },
-        { id: 'placeAddresses', label: 'all place addresses (list)' },
       ]
     },
     {
@@ -1678,14 +1654,12 @@ const API_ENDPOINTS = {
       apiType: 'NEARBY_PLACES',
       params: [
         { id: 'placesFound', label: 'number of places found' },
-        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
+        { id: 'places', label: 'place list — name & distance', source: 'places', fields: ['name', 'distanceLabel'] },
         { id: 'closestPlaceName', label: 'closest place name' },
-        { id: 'closestPlaceAddress', label: 'closest place address' },
         { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
         { id: 'closestPlaceLat', label: 'closest place latitude' },
         { id: 'closestPlaceLng', label: 'closest place longitude' },
         { id: 'placeNames', label: 'all place names (list)' },
-        { id: 'placeAddresses', label: 'all place addresses (list)' },
       ]
     },
     {
@@ -1695,14 +1669,12 @@ const API_ENDPOINTS = {
       apiType: 'NEARBY_PLACES',
       params: [
         { id: 'placesFound', label: 'number of places found' },
-        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
+        { id: 'places', label: 'place list — name & distance', source: 'places', fields: ['name', 'distanceLabel'] },
         { id: 'closestPlaceName', label: 'closest place name' },
-        { id: 'closestPlaceAddress', label: 'closest place address' },
         { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
         { id: 'closestPlaceLat', label: 'closest place latitude' },
         { id: 'closestPlaceLng', label: 'closest place longitude' },
         { id: 'placeNames', label: 'all place names (list)' },
-        { id: 'placeAddresses', label: 'all place addresses (list)' },
       ]
     },
     {
@@ -1712,14 +1684,12 @@ const API_ENDPOINTS = {
       apiType: 'NEARBY_PLACES',
       params: [
         { id: 'placesFound', label: 'number of places found' },
-        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
+        { id: 'places', label: 'place list — name & distance', source: 'places', fields: ['name', 'distanceLabel'] },
         { id: 'closestPlaceName', label: 'closest place name' },
-        { id: 'closestPlaceAddress', label: 'closest place address' },
         { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
         { id: 'closestPlaceLat', label: 'closest place latitude' },
         { id: 'closestPlaceLng', label: 'closest place longitude' },
         { id: 'placeNames', label: 'all place names (list)' },
-        { id: 'placeAddresses', label: 'all place addresses (list)' },
       ]
     },
     {
@@ -1729,14 +1699,12 @@ const API_ENDPOINTS = {
       apiType: 'NEARBY_PLACES',
       params: [
         { id: 'placesFound', label: 'number of places found' },
-        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
+        { id: 'places', label: 'place list — name & distance', source: 'places', fields: ['name', 'distanceLabel'] },
         { id: 'closestPlaceName', label: 'closest place name' },
-        { id: 'closestPlaceAddress', label: 'closest place address' },
         { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
         { id: 'closestPlaceLat', label: 'closest place latitude' },
         { id: 'closestPlaceLng', label: 'closest place longitude' },
         { id: 'placeNames', label: 'all place names (list)' },
-        { id: 'placeAddresses', label: 'all place addresses (list)' },
       ]
     },
     {
@@ -1746,9 +1714,8 @@ const API_ENDPOINTS = {
       apiType: 'NEARBY_PLACES',
       params: [
         { id: 'placesFound', label: 'number of places found' },
-        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
+        { id: 'places', label: 'place list — name & distance', source: 'places', fields: ['name', 'distanceLabel'] },
         { id: 'closestPlaceName', label: 'closest place name' },
-        { id: 'closestPlaceAddress', label: 'closest place address' },
         { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
         { id: 'placeNames', label: 'all place names (list)' },
       ]
@@ -1826,14 +1793,12 @@ const API_ENDPOINTS = {
       deprecated: true,
       params: [
         { id: 'placesFound', label: 'number of places found' },
-        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
+        { id: 'places', label: 'place list — name & distance', source: 'places', fields: ['name', 'distanceLabel'] },
         { id: 'closestPlaceName', label: 'closest place name' },
-        { id: 'closestPlaceAddress', label: 'closest place address' },
         { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
         { id: 'closestPlaceLat', label: 'closest place latitude' },
         { id: 'closestPlaceLng', label: 'closest place longitude' },
         { id: 'placeNames', label: 'all place names (list)' },
-        { id: 'placeAddresses', label: 'all place addresses (list)' },
       ]
     },
     {
@@ -1844,14 +1809,12 @@ const API_ENDPOINTS = {
       deprecated: true,
       params: [
         { id: 'placesFound', label: 'number of places found' },
-        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
+        { id: 'places', label: 'place list — name & distance', source: 'places', fields: ['name', 'distanceLabel'] },
         { id: 'closestPlaceName', label: 'closest place name' },
-        { id: 'closestPlaceAddress', label: 'closest place address' },
         { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
         { id: 'closestPlaceLat', label: 'closest place latitude' },
         { id: 'closestPlaceLng', label: 'closest place longitude' },
         { id: 'placeNames', label: 'all place names (list)' },
-        { id: 'placeAddresses', label: 'all place addresses (list)' },
       ]
     },
     {
@@ -1862,14 +1825,12 @@ const API_ENDPOINTS = {
       deprecated: true,
       params: [
         { id: 'placesFound', label: 'number of places found' },
-        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
+        { id: 'places', label: 'place list — name & distance', source: 'places', fields: ['name', 'distanceLabel'] },
         { id: 'closestPlaceName', label: 'closest place name' },
-        { id: 'closestPlaceAddress', label: 'closest place address' },
         { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
         { id: 'closestPlaceLat', label: 'closest place latitude' },
         { id: 'closestPlaceLng', label: 'closest place longitude' },
         { id: 'placeNames', label: 'all place names (list)' },
-        { id: 'placeAddresses', label: 'all place addresses (list)' },
       ]
     },
     {
@@ -1880,14 +1841,12 @@ const API_ENDPOINTS = {
       deprecated: true,
       params: [
         { id: 'placesFound', label: 'number of places found' },
-        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
+        { id: 'places', label: 'place list — name & distance', source: 'places', fields: ['name', 'distanceLabel'] },
         { id: 'closestPlaceName', label: 'closest place name' },
-        { id: 'closestPlaceAddress', label: 'closest place address' },
         { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
         { id: 'closestPlaceLat', label: 'closest place latitude' },
         { id: 'closestPlaceLng', label: 'closest place longitude' },
         { id: 'placeNames', label: 'all place names (list)' },
-        { id: 'placeAddresses', label: 'all place addresses (list)' },
       ]
     },
     {
@@ -1898,14 +1857,12 @@ const API_ENDPOINTS = {
       deprecated: true,
       params: [
         { id: 'placesFound', label: 'number of places found' },
-        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
+        { id: 'places', label: 'place list — name & distance', source: 'places', fields: ['name', 'distanceLabel'] },
         { id: 'closestPlaceName', label: 'closest place name' },
-        { id: 'closestPlaceAddress', label: 'closest place address' },
         { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
         { id: 'closestPlaceLat', label: 'closest place latitude' },
         { id: 'closestPlaceLng', label: 'closest place longitude' },
         { id: 'placeNames', label: 'all place names (list)' },
-        { id: 'placeAddresses', label: 'all place addresses (list)' },
       ]
     },
     {
@@ -1916,14 +1873,12 @@ const API_ENDPOINTS = {
       deprecated: true,
       params: [
         { id: 'placesFound', label: 'number of places found' },
-        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
+        { id: 'places', label: 'place list — name & distance', source: 'places', fields: ['name', 'distanceLabel'] },
         { id: 'closestPlaceName', label: 'closest place name' },
-        { id: 'closestPlaceAddress', label: 'closest place address' },
         { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
         { id: 'closestPlaceLat', label: 'closest place latitude' },
         { id: 'closestPlaceLng', label: 'closest place longitude' },
         { id: 'placeNames', label: 'all place names (list)' },
-        { id: 'placeAddresses', label: 'all place addresses (list)' },
       ]
     },
     {
@@ -1934,14 +1889,12 @@ const API_ENDPOINTS = {
       deprecated: true,
       params: [
         { id: 'placesFound', label: 'number of places found' },
-        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
+        { id: 'places', label: 'place list — name & distance', source: 'places', fields: ['name', 'distanceLabel'] },
         { id: 'closestPlaceName', label: 'closest place name' },
-        { id: 'closestPlaceAddress', label: 'closest place address' },
         { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
         { id: 'closestPlaceLat', label: 'closest place latitude' },
         { id: 'closestPlaceLng', label: 'closest place longitude' },
         { id: 'placeNames', label: 'all place names (list)' },
-        { id: 'placeAddresses', label: 'all place addresses (list)' },
       ]
     },
     {
@@ -1952,14 +1905,12 @@ const API_ENDPOINTS = {
       deprecated: true,
       params: [
         { id: 'placesFound', label: 'number of places found' },
-        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
+        { id: 'places', label: 'place list — name & distance', source: 'places', fields: ['name', 'distanceLabel'] },
         { id: 'closestPlaceName', label: 'closest place name' },
-        { id: 'closestPlaceAddress', label: 'closest place address' },
         { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
         { id: 'closestPlaceLat', label: 'closest place latitude' },
         { id: 'closestPlaceLng', label: 'closest place longitude' },
         { id: 'placeNames', label: 'all place names (list)' },
-        { id: 'placeAddresses', label: 'all place addresses (list)' },
       ]
     },
     {
@@ -1970,14 +1921,12 @@ const API_ENDPOINTS = {
       deprecated: true,
       params: [
         { id: 'placesFound', label: 'number of places found' },
-        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
+        { id: 'places', label: 'place list — name & distance', source: 'places', fields: ['name', 'distanceLabel'] },
         { id: 'closestPlaceName', label: 'closest place name' },
-        { id: 'closestPlaceAddress', label: 'closest place address' },
         { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
         { id: 'closestPlaceLat', label: 'closest place latitude' },
         { id: 'closestPlaceLng', label: 'closest place longitude' },
         { id: 'placeNames', label: 'all place names (list)' },
-        { id: 'placeAddresses', label: 'all place addresses (list)' },
       ]
     },
     {
@@ -1988,14 +1937,12 @@ const API_ENDPOINTS = {
       deprecated: true,
       params: [
         { id: 'placesFound', label: 'number of places found' },
-        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
+        { id: 'places', label: 'place list — name & distance', source: 'places', fields: ['name', 'distanceLabel'] },
         { id: 'closestPlaceName', label: 'closest place name' },
-        { id: 'closestPlaceAddress', label: 'closest place address' },
         { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
         { id: 'closestPlaceLat', label: 'closest place latitude' },
         { id: 'closestPlaceLng', label: 'closest place longitude' },
         { id: 'placeNames', label: 'all place names (list)' },
-        { id: 'placeAddresses', label: 'all place addresses (list)' },
       ]
     },
     {
@@ -2006,14 +1953,12 @@ const API_ENDPOINTS = {
       deprecated: true,
       params: [
         { id: 'placesFound', label: 'number of places found' },
-        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
+        { id: 'places', label: 'place list — name & distance', source: 'places', fields: ['name', 'distanceLabel'] },
         { id: 'closestPlaceName', label: 'closest place name' },
-        { id: 'closestPlaceAddress', label: 'closest place address' },
         { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
         { id: 'closestPlaceLat', label: 'closest place latitude' },
         { id: 'closestPlaceLng', label: 'closest place longitude' },
         { id: 'placeNames', label: 'all place names (list)' },
-        { id: 'placeAddresses', label: 'all place addresses (list)' },
       ]
     },
     {
@@ -2024,14 +1969,12 @@ const API_ENDPOINTS = {
       deprecated: true,
       params: [
         { id: 'placesFound', label: 'number of places found' },
-        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
+        { id: 'places', label: 'place list — name & distance', source: 'places', fields: ['name', 'distanceLabel'] },
         { id: 'closestPlaceName', label: 'closest place name' },
-        { id: 'closestPlaceAddress', label: 'closest place address' },
         { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
         { id: 'closestPlaceLat', label: 'closest place latitude' },
         { id: 'closestPlaceLng', label: 'closest place longitude' },
         { id: 'placeNames', label: 'all place names (list)' },
-        { id: 'placeAddresses', label: 'all place addresses (list)' },
       ]
     },
     {
@@ -2042,14 +1985,12 @@ const API_ENDPOINTS = {
       deprecated: true,
       params: [
         { id: 'placesFound', label: 'number of places found' },
-        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
+        { id: 'places', label: 'place list — name & distance', source: 'places', fields: ['name', 'distanceLabel'] },
         { id: 'closestPlaceName', label: 'closest place name' },
-        { id: 'closestPlaceAddress', label: 'closest place address' },
         { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
         { id: 'closestPlaceLat', label: 'closest place latitude' },
         { id: 'closestPlaceLng', label: 'closest place longitude' },
         { id: 'placeNames', label: 'all place names (list)' },
-        { id: 'placeAddresses', label: 'all place addresses (list)' },
       ]
     },
   ],

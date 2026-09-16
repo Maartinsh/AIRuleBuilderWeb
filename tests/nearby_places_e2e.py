@@ -127,6 +127,26 @@ def main():
             offered = endpoint_options(page)
             assert not [o for o in offered if "nearby" in o], offered
 
+            # ── Nothing the endpoint does not return is offered ──
+            # The body is OpenStreetMap-derived and carries no address, rating or
+            # business status, so offering them would only produce variables that
+            # silently extract nothing. Coordinates are what a rule places a result by.
+            catalogue = page.evaluate("() => FILTER_FIELDS.places.map(p => p.id)")
+            assert "address" not in catalogue, catalogue
+            for field in ["name", "distanceLabel", "latitude", "longitude"]:
+                assert field in catalogue, (field, catalogue)
+
+            computed = page.evaluate("() => NEARBY_PLACES_PARAMS.map(p => p.id)")
+            for dead in ["closestPlaceAddress", "closestPlaceRating", "closestPlaceBusinessStatus"]:
+                assert dead not in computed, (dead, computed)
+
+            defaults = page.evaluate(
+                "(id) => API_ENDPOINTS.MZONE.find(e => e.id === id).params"
+                "        .find(p => p.source === 'places').fields",
+                "nearby_FuelStation",
+            )
+            assert defaults == ["name", "distanceLabel"], defaults
+
             # ── A category search round-trips, and asks for no query ──
             fuel = places_rule("nearby_FuelStation", search={"mode": "nearby", "radius": 5000, "limit": 3})
             built = load(page, fuel)
