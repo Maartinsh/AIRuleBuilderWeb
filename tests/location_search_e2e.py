@@ -27,7 +27,7 @@ COFFEE_RULE = {
         "expressions": [
             {"type": "SINGLE", "id": "get_remaining_jobs", "dataSource": "MZONE",
              "conditions": [{"type": "Value", "parameter": "count", "operator": ">=", "value": 1}]},
-            {"type": "SINGLE", "id": "google_nearby_coffee_shop", "dataSource": "External Source",
+            {"type": "SINGLE", "id": "nearby_Cafe", "dataSource": "MZONE",
              "conditions": [{"type": "Value", "parameter": "placesFound", "operator": ">=", "value": 1}],
              "search": COFFEE_SEARCH},
         ],
@@ -37,7 +37,7 @@ COFFEE_RULE = {
 
 def rule_with(search=None, **overrides):
     single = {
-        "type": "SINGLE", "id": "google_nearby_coffee_shop", "dataSource": "External Source",
+        "type": "SINGLE", "id": "nearby_Cafe", "dataSource": "MZONE",
         "conditions": [{"type": "Value", "parameter": "placesFound", "operator": ">=", "value": 1}],
     }
     if search is not None:
@@ -188,30 +188,30 @@ def main():
 
             # LocationSearchPlanner only freshness-gates expressions that declare a block, so
             # a places trigger without one always gets the explicit nearby default.
-            built = load(page, single_rule(id="google_nearby_gas_station", dataSource="External Source",
+            built = load(page, single_rule(id="nearby_FuelStation", dataSource="MZONE",
                                            conditions=[{"type": "Value", "parameter": "placesFound", "operator": ">=", "value": 1}]))
             assert built["triggerExpression"]["search"] == {"mode": "nearby"}, built["triggerExpression"]
 
             # Authoring from scratch: the form belongs to the trigger id, not the data source.
             page.evaluate("resetForm(true)")
-            set_trigger(page, "dataSource", "External Source")
+            set_trigger(page, "dataSource", "MZONE")
             assert not search_state(page)["visible"]
-            set_trigger(page, "triggerId", "google_nearby_cafe")
+            set_trigger(page, "triggerId", "nearby_Cafe")
             assert search_state(page)["visible"]
             assert page.evaluate("() => buildRuleJSON().triggerExpression.search") == {"mode": "nearby"}
-            set_trigger(page, "triggerId", "weather_forecast")
+            set_trigger(page, "triggerId", "get_todays_jobs")
             assert not search_state(page)["visible"]
             assert page.evaluate("() => buildRuleJSON().triggerExpression.search") is None
 
             # An imported block, though, is kept when the trigger stops being a places one,
             # so the endpoint mismatch is reported instead of quietly disappearing.
-            load(page, single_rule(id="google_nearby_cafe", dataSource="External Source",
+            load(page, single_rule(id="nearby_Cafe", dataSource="MZONE",
                                    search={"mode": "nearby", "radius": 300}))
-            set_trigger(page, "triggerId", "weather_forecast")
+            set_trigger(page, "triggerId", "get_todays_jobs")
             built = page.evaluate("() => buildRuleJSON()")
             assert built["triggerExpression"]["search"] == {"mode": "nearby", "radius": 300}
             assert any(
-                "is only supported on google_nearby_* expressions of External Source" in e
+                "is only supported on a places expression" in e
                 for e in validate(page)["errors"]
             ), validate(page)["errors"]
 
@@ -220,9 +220,9 @@ def main():
             # search - and never one whose response has no coordinates to read.
             two = {"id": "two", "sessionScope": "activity", "output": {"instructions": "x"},
                    "triggerExpression": {"type": "GROUP", "groupType": "AND", "expressions": [
-                       {"type": "SINGLE", "id": "google_nearby_cafe", "dataSource": "External Source",
+                       {"type": "SINGLE", "id": "nearby_Cafe", "dataSource": "MZONE",
                         "search": {"mode": "nearby"}},
-                       {"type": "SINGLE", "id": "google_nearby_atm", "dataSource": "External Source",
+                       {"type": "SINGLE", "id": "nearby_Atm", "dataSource": "MZONE",
                         "search": {"mode": "near_destination", "destination": {
                             "triggerId": "get_todays_jobs", "latField": "nextJobLat", "lngField": "nextJobLng"}}},
                        {"type": "SINGLE", "id": "get_todays_jobs", "dataSource": "MZONE",
@@ -337,7 +337,7 @@ def main():
 
             # RuleMapper.liftLegacyRadius on import: the largest legacy radius fills in an
             # absent search.radius and every legacy condition goes away.
-            legacy = single_rule(id="google_nearby_gas_station", dataSource="External Source", conditions=[
+            legacy = single_rule(id="nearby_FuelStation", dataSource="MZONE", conditions=[
                 {"type": "Value", "parameter": "radius", "operator": "==", "value": "800"},
                 {"type": "Value", "parameter": "radius", "operator": "==", "value": "1500"},
                 {"type": "Value", "parameter": "placesFound", "operator": ">=", "value": 1},
@@ -368,7 +368,7 @@ def main():
             # Variables and destination references resolve a trigger id once per rule.
             duplicate = rule_with({"mode": "nearby"})
             duplicate["triggerExpression"]["expressions"].append({
-                "type": "SINGLE", "id": "google_nearby_coffee_shop", "dataSource": "External Source",
+                "type": "SINGLE", "id": "nearby_Cafe", "dataSource": "MZONE",
                 "search": {"mode": "near_point", "point": {"lat": 1, "lng": 2}}})
             errors = validate(page, duplicate)["errors"]
             assert any("require one search per trigger id within a rule" in e for e in errors), errors
@@ -414,8 +414,8 @@ def main():
                     "search.destination.latField must be a non-blank string"),
                 "self destination": (
                     {"mode": "near_destination", "destination": {
-                        "triggerId": "google_nearby_coffee_shop", "latField": "a", "lngField": "b"}},
-                    "'google_nearby_coffee_shop' is the expression itself; the destination must be read from "
+                        "triggerId": "nearby_Cafe", "latField": "a", "lngField": "b"}},
+                    "'nearby_Cafe' is the expression itself; the destination must be read from "
                     "another trigger of the rule"),
                 "point out of range": (
                     {"mode": "near_point", "point": {"lat": 991, "lng": 2}},
@@ -430,9 +430,9 @@ def main():
 
             # A destination cannot be read from another search, so no chains and no cycles.
             chained = rule_with({"mode": "near_destination", "destination": {
-                "triggerId": "google_nearby_cafe", "latField": "a", "lngField": "b"}})
+                "triggerId": "nearby_Atm", "latField": "a", "lngField": "b"}})
             chained["triggerExpression"]["expressions"].append({
-                "type": "SINGLE", "id": "google_nearby_cafe", "dataSource": "External Source",
+                "type": "SINGLE", "id": "nearby_Atm", "dataSource": "MZONE",
                 "search": {"mode": "nearby"}})
             errors = validate(page, chained)["errors"]
             assert any("has a search block of its own; a destination cannot be read from another search" in e
@@ -445,10 +445,10 @@ def main():
             warnings = validate(page, single_rule(
                 id="poi_entry", dataSource="POI", POI=poi_block))["warnings"]
             assert any("POI is read nowhere and can be removed; search is accepted only on "
-                       "google_nearby_* expressions of External Source, so there is nothing to "
+                       "a places expression (nearby_<Category> on MZONE), so there is nothing to "
                        "move it to here" in w for w in warnings), warnings
             warnings = validate(page, single_rule(
-                id="google_nearby_cafe", dataSource="External Source", POI=poi_block,
+                id="nearby_Cafe", dataSource="MZONE", POI=poi_block,
                 search={"mode": "nearby"}))["warnings"]
             assert any('POI is read nowhere; a fixed anchor is search.point with "mode": "near_point"' in w
                        for w in warnings), warnings

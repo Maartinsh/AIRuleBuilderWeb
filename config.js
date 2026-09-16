@@ -58,16 +58,20 @@ const TRIGGER_IDS = {
     'updatedJobDetails', 'job_destination_entry', 'description', 'firstname',
     'customer_communication', 'score', 'montly_score_decreased', 'todays_braking_score',
     'get_measurements', 'last_health_check', 'get_trips', 'get_events',
-    'current_location', 'poi_entry', 'poi_exit', 'location_request', 'emergency_flow'
+    'current_location', 'poi_entry', 'poi_exit', 'location_request', 'emergency_flow',
+    // Location/NearbyPlaces. A free-text search carries a label of the author's own
+    // as the suffix instead, so this list is a vocabulary, not a closed set.
+    'nearby_Cafe', 'nearby_Restaurant', 'nearby_FastFood', 'nearby_FuelStation',
+    'nearby_ChargingStation', 'nearby_Parking', 'nearby_CarRepair', 'nearby_CarWash',
+    'nearby_Hospital', 'nearby_Pharmacy', 'nearby_Police', 'nearby_Bank',
+    'nearby_Atm', 'nearby_Supermarket', 'nearby_Hotel'
   ],
   GZONE: ['leaderboard_position_declined', 'leaderboard_check'],
+  // Place search left this source for MZONE; the google_nearby_* ids are still
+  // served by the engine (deprecated) but are no longer offered for authoring.
   'External Source': [
     'weather_forecast', 'todays_weather_forecast', 'forecast_for_upcoming_hour',
-    'real_time_weather_updates', 'google_nearby_gas_station', 'google_nearby_coffee_shop',
-    'google_nearby_restaurant', 'google_nearby_fast_food_restaurant', 'google_nearby_cafe',
-    'google_nearby_pharmacy', 'google_nearby_hospital', 'google_nearby_atm',
-    'google_nearby_parking', 'google_nearby_electric_vehicle_charging_station',
-    'google_nearby_car_wash', 'google_nearby_car_repair', 'google_nearby_convenience_store'
+    'real_time_weather_updates'
   ],
   // Mojo on-device events, submitted by the Mojo app via engine.submit(). Seven
   // milestones, in the order a patient hits them. Finishing and not finishing are
@@ -90,26 +94,33 @@ const TRIGGER_IDS = {
    ========================================================= */
 
 /**
- * External Source condition parameters, split by the underlying engine API.
- * These MUST stay in sync with the engine's response schema:
- *   - Google Places: ApiResponseParameters.GooglePlaces.ALL_PARAMETERS
- *   - Weather:       ApiDataMapper.mapWeatherToEvent(...)
- * They are attached per-trigger via TRIGGER_CONDITION_CONFIG[...].validParameters
- * so a Google Places trigger never offers weather fields and vice-versa.
+ * Condition parameters of a place search, mirroring the mapped fields of
+ * ApiResponseParameters.NearbyPlaces. Conditions run against these computed
+ * fields, never against the endpoint's raw items — those are reached through a
+ * variable with source 'places'.
+ *
+ * rating and businessStatus are Google-era: the MZone endpoint's body is not
+ * captured yet, so the mapper reads them if they are there and a condition on
+ * one is simply never satisfied if they are not.
  */
-const GOOGLE_PLACES_PARAMS = [
+const NEARBY_PLACES_PARAMS = [
   { id: 'placesFound', type: 'int', label: 'number of places found' },
   { id: 'closestPlaceName', type: 'string', label: 'closest place name (use "contains" for brand match, e.g. "circle")' },
   { id: 'closestPlaceAddress', type: 'string', label: 'closest place address' },
-  { id: 'closestPlaceRating', type: 'double', label: 'closest place rating' },
-  { id: 'closestPlaceBusinessStatus', type: 'string', label: 'closest place business status (e.g. OPERATIONAL)' }
+  { id: 'closestPlaceCategory', type: 'string', label: 'closest place category' },
+  { id: 'closestPlaceDistanceMeters', type: 'double', label: 'closest place distance from the anchor (m)' },
+  { id: 'closestPlaceLat', type: 'double', label: 'closest place latitude' },
+  { id: 'closestPlaceLng', type: 'double', label: 'closest place longitude' },
+  { id: 'closestPlaceId', type: 'string', label: 'closest place id' },
+  { id: 'closestPlaceRating', type: 'double', label: 'closest place rating — only if the endpoint returns one' },
+  { id: 'closestPlaceBusinessStatus', type: 'string', label: 'closest place business status — only if the endpoint returns one' }
 ];
 
 /**
- * Search modes for the `search` block on a google_nearby_* trigger. The engine
- * forwards the mode and its anchors to the app as request parameters and
- * computes no geometry itself; an unknown mode is a hard validation error, not
- * a fallback to nearby.
+ * Search modes for the `search` block on a places trigger. The engine forwards
+ * the mode and its anchors to the app as request parameters and computes no
+ * geometry itself; an unknown mode is a hard validation error, not a fallback
+ * to nearby.
  */
 const SEARCH_MODES = [
   {
@@ -120,7 +131,7 @@ const SEARCH_MODES = [
   {
     id: 'along_route',
     label: 'Along route',
-    help: 'Search the corridor between the current position and a destination. Radius bounds how far ahead a place may be; max detour bounds the extra driving it costs.'
+    help: 'Search the corridor between the current position and a destination. Radius bounds how far ahead a place may be; max detour bounds the extra driving it costs. The endpoint takes no route, so the app approximates the corridor and measures the detour in a straight line — slightly permissive, never stricter.'
   },
   {
     id: 'near_destination',
@@ -134,7 +145,51 @@ const SEARCH_MODES = [
   }
 ];
 
-const GOOGLE_NEARBY_PREFIX = 'google_nearby_';
+/** `nearby_<Category>` on MZONE: the grammar new rules are written in. */
+const PLACES_PREFIX = 'nearby_';
+
+/** `google_nearby_<googleType>` on External Source: deprecated, still served. */
+const LEGACY_PLACES_PREFIX = 'google_nearby_';
+
+/**
+ * Stands in the endpoint list for "a search I will name myself". It is never a
+ * trigger id: picking it swaps the endpoint dropdown for a text field, and the
+ * id the rule exports is whatever is typed there.
+ */
+const PLACES_CUSTOM_ENDPOINT = '__nearby_custom__';
+
+/**
+ * The categories Location/NearbyPlaces accepts, spelt exactly as it spells them —
+ * NearbyPlaceCategory in the engine. A rule names one as the suffix of its trigger
+ * id; anything else is a label of the author's own and must declare search.query.
+ */
+const NEARBY_PLACE_CATEGORIES = [
+  'Cafe', 'Restaurant', 'FastFood', 'FuelStation', 'ChargingStation',
+  'Parking', 'CarRepair', 'CarWash', 'Hospital', 'Pharmacy',
+  'Police', 'Bank', 'Atm', 'Supermarket', 'Hotel'
+];
+
+/**
+ * LegacyPlaceTypes in the engine: the Google types a deployed google_nearby_*
+ * rule still names, and the category each is sent as now. Authoring offers none
+ * of them — this exists so an imported rule can be told what to become.
+ */
+const LEGACY_PLACE_TYPES = {
+  gas_station: 'FuelStation',
+  coffee_shop: 'Cafe',
+  cafe: 'Cafe',
+  restaurant: 'Restaurant',
+  fast_food_restaurant: 'FastFood',
+  pharmacy: 'Pharmacy',
+  hospital: 'Hospital',
+  atm: 'Atm',
+  parking: 'Parking',
+  electric_vehicle_charging_station: 'ChargingStation',
+  car_wash: 'CarWash',
+  car_repair: 'CarRepair',
+  // Nearest match: MZone has no convenience-store category of its own.
+  convenience_store: 'Supermarket'
+};
 
 const WEATHER_PARAMS = [
   { id: 'driving_conditions', type: 'string', label: 'driving conditions (good/moderate/bad_driving_conditions)' },
@@ -328,19 +383,17 @@ const PARAMETERS = {
   ],
   MZONE: [
     'count', 'pendingJobs', 'completedJobs', 'inProgressJobs', 'RouteState',
-    'score', 'status', 'hasProblematicJobs', 'hasDepotJobs'
+    'score', 'status', 'hasProblematicJobs', 'hasDepotJobs',
+    ...NEARBY_PLACES_PARAMS
   ],
   GZONE: ['position', 'leaderboardId'],
-  // NOTE: 'External Source' covers two different engine APIs (Google Places &
-  // Weather) whose response fields do NOT overlap. Per-trigger parameters are
-  // defined in TRIGGER_CONDITION_CONFIG[...].validParameters and take priority
-  // over this flat list. This list is only a fallback datalist and must contain
-  // ONLY parameters the engine actually emits (see ApiResponseParameters.kt) —
-  // do not add fields like the removed phantom 'closestFuelStation'.
-  'External Source': [
-    ...GOOGLE_PLACES_PARAMS,
-    ...WEATHER_PARAMS
-  ],
+  // Weather only, now that place search has moved to MZONE. A deprecated
+  // google_nearby_* trigger still gets the place fields, through its own
+  // TRIGGER_CONDITION_CONFIG entry rather than through this flat fallback.
+  // This list must contain ONLY parameters the engine actually emits (see
+  // ApiResponseParameters.kt) — do not add fields like the removed phantom
+  // 'closestFuelStation'.
+  'External Source': WEATHER_PARAMS,
   // Mojo on-device event attributes — the union of the per-event lists above.
   // Per-event narrowing happens through TRIGGER_CONDITION_CONFIG.validParameters.
   Mojo: MOJO_ALL_PARAMS,
@@ -403,20 +456,26 @@ const FILTER_FIELDS = {
     { id: 'eventType_Id', type: 'string', label: 'event type ID' },
     { id: 'eventType_Description', type: 'string', label: 'event type description' },
   ],
-  // Google nearby search — items of the `places` array (_rawPlaces), nearest
-  // first. displayName and location are nested objects, so they cannot be
-  // filtered on; a follow-up option label reaches them by dotted path.
-  // The four distance fields are measured by the mobile app rather than returned
-  // by Google, and the last two only exist for mode 'along_route'.
+  // Place search — items of the `places` array (_rawPlaces), nearest first.
+  // The three distance fields are measured by the mobile app rather than
+  // returned by the endpoint, and detourMeters only exists for 'along_route'.
+  //
+  // The endpoint's per-item field names are not captured yet
+  // (NEARBY_PLACES_MZONE.md §4.0), so PlaceFieldAliases in the engine tries
+  // several spellings per field: a rule asking for 'name' reads an item that
+  // spells it 'displayName', and vice versa. These are the names to author
+  // with; Google's spellings still resolve, which is what keeps deployed
+  // google_nearby_* rules working.
   places: [
-    { id: 'id', type: 'string', label: 'Google place id' },
-    { id: 'formattedAddress', type: 'string', label: 'address' },
-    { id: 'rating', type: 'double', label: 'rating 1-5' },
-    { id: 'businessStatus', type: 'string', label: 'OPERATIONAL / CLOSED_TEMPORARILY / CLOSED_PERMANENTLY' },
-    { id: 'distanceKm', type: 'double', label: 'distance in km' },
+    { id: 'name', type: 'string', label: 'place name' },
+    { id: 'address', type: 'string', label: 'address' },
+    { id: 'category', type: 'string', label: 'place category (e.g. FuelStation)' },
+    { id: 'id', type: 'string', label: 'place id' },
+    { id: 'latitude', type: 'double', label: 'latitude' },
+    { id: 'longitude', type: 'double', label: 'longitude' },
+    { id: 'distanceMeters', type: 'int', label: 'distance from the anchor (m)' },
     { id: 'distanceLabel', type: 'string', label: 'distance said aloud — "4.2 km ahead" / "1.1 km away"' },
-    { id: 'routeDistanceMeters', type: 'int', label: 'driving distance from here (along_route only)' },
-    { id: 'detourMeters', type: 'int', label: 'extra driving this stop costs (along_route only)' },
+    { id: 'detourMeters', type: 'int', label: 'extra distance this stop costs (along_route only)' },
   ],
   // MojoPortal therapy_sessions — items of the `sessions` array (_rawSessions),
   // sorted oldest to newest. Field names are the portal's own, so they are
@@ -509,8 +568,8 @@ const DEFAULT_PRODUCT = 'fleet';
  *
  * POI and External Source are listed fleet-only because, while neither is
  * structurally fleet-locked, every trigger ID they currently expose is: POI maps
- * to the jobs API, and External Source offers weather plus google_nearby_*
- * lookups. Move them into `mojo` the moment a Mojo rule needs them.
+ * to the jobs API, and External Source offers weather. Move them into `mojo` the
+ * moment a Mojo rule needs them.
  */
 const PRODUCT_DATA_SOURCES = {
   fleet: [
@@ -600,8 +659,8 @@ const TIME_PERIODS = ['currentMonth', 'lastMonth', 'currentWeek', 'lastWeek'];
    are valid per trigger ID.
    ========================================================= */
 
-/** Shared config factory for all Google Places triggers. */
-function _googlePlacesConfig() {
+/** Shared config factory for every place-search trigger, new grammar or legacy. */
+function _nearbyPlacesConfig() {
   return {
     conditionRequired: false,
     defaultConditionType: 'Value',
@@ -610,7 +669,7 @@ function _googlePlacesConfig() {
     validConditionTypes: ['Value'],
     validOperators: NUMERIC_OPERATORS,
     valueHint: 'Min. places found (e.g. 1)',
-    validParameters: GOOGLE_PLACES_PARAMS,
+    validParameters: NEARBY_PLACES_PARAMS,
     hideSource: true
   };
 }
@@ -1119,20 +1178,38 @@ const TRIGGER_CONDITION_CONFIG = {
     hideSource: true
   },
 
-  // ── External Source — Google Places ──
-  google_nearby_gas_station: _googlePlacesConfig(),
-  google_nearby_coffee_shop: _googlePlacesConfig(),
-  google_nearby_restaurant: _googlePlacesConfig(),
-  google_nearby_fast_food_restaurant: _googlePlacesConfig(),
-  google_nearby_cafe: _googlePlacesConfig(),
-  google_nearby_pharmacy: _googlePlacesConfig(),
-  google_nearby_hospital: _googlePlacesConfig(),
-  google_nearby_atm: _googlePlacesConfig(),
-  google_nearby_parking: _googlePlacesConfig(),
-  google_nearby_electric_vehicle_charging_station: _googlePlacesConfig(),
-  google_nearby_car_wash: _googlePlacesConfig(),
-  google_nearby_car_repair: _googlePlacesConfig(),
-  google_nearby_convenience_store: _googlePlacesConfig(),
+  // ── MZONE — Location/NearbyPlaces ──
+  nearby_Cafe: _nearbyPlacesConfig(),
+  nearby_Restaurant: _nearbyPlacesConfig(),
+  nearby_FastFood: _nearbyPlacesConfig(),
+  nearby_FuelStation: _nearbyPlacesConfig(),
+  nearby_ChargingStation: _nearbyPlacesConfig(),
+  nearby_Parking: _nearbyPlacesConfig(),
+  nearby_CarRepair: _nearbyPlacesConfig(),
+  nearby_CarWash: _nearbyPlacesConfig(),
+  nearby_Hospital: _nearbyPlacesConfig(),
+  nearby_Pharmacy: _nearbyPlacesConfig(),
+  nearby_Police: _nearbyPlacesConfig(),
+  nearby_Bank: _nearbyPlacesConfig(),
+  nearby_Atm: _nearbyPlacesConfig(),
+  nearby_Supermarket: _nearbyPlacesConfig(),
+  nearby_Hotel: _nearbyPlacesConfig(),
+
+  // Deprecated google_nearby_* ids. Not offered for authoring, but a deployed rule
+  // still imports, and its conditions must keep offering the same fields.
+  google_nearby_gas_station: _nearbyPlacesConfig(),
+  google_nearby_coffee_shop: _nearbyPlacesConfig(),
+  google_nearby_restaurant: _nearbyPlacesConfig(),
+  google_nearby_fast_food_restaurant: _nearbyPlacesConfig(),
+  google_nearby_cafe: _nearbyPlacesConfig(),
+  google_nearby_pharmacy: _nearbyPlacesConfig(),
+  google_nearby_hospital: _nearbyPlacesConfig(),
+  google_nearby_atm: _nearbyPlacesConfig(),
+  google_nearby_parking: _nearbyPlacesConfig(),
+  google_nearby_electric_vehicle_charging_station: _nearbyPlacesConfig(),
+  google_nearby_car_wash: _nearbyPlacesConfig(),
+  google_nearby_car_repair: _nearbyPlacesConfig(),
+  google_nearby_convenience_store: _nearbyPlacesConfig(),
 
   // ── Mojo ──
   // `app_open` is deliberately absent: it carries no attributes, so it lives in
@@ -1401,6 +1478,281 @@ const API_ENDPOINTS = {
         { id: 'vehicleDowntime', label: 'vehicle downtime (days)' },
       ]
     },
+    // ── Location/NearbyPlaces ──
+    // Fifteen categories the endpoint knows, plus a free-text search that carries a
+    // label of the author's own as the id suffix and says what to look for in
+    // search.query. Each of these needs a `search` block: the engine keys the
+    // freshness gate off its presence, and the category travels as a request
+    // parameter rather than as part of the endpoint path.
+    {
+      id: 'nearby_Cafe',
+      label: 'Nearby — Cafe',
+      description: 'NEARBY_PLACES — cafes from the MZone Location/NearbyPlaces endpoint',
+      apiType: 'NEARBY_PLACES',
+      params: [
+        { id: 'placesFound', label: 'number of places found' },
+        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
+        { id: 'closestPlaceName', label: 'closest place name' },
+        { id: 'closestPlaceAddress', label: 'closest place address' },
+        { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
+        { id: 'closestPlaceLat', label: 'closest place latitude' },
+        { id: 'closestPlaceLng', label: 'closest place longitude' },
+        { id: 'placeNames', label: 'all place names (list)' },
+        { id: 'placeAddresses', label: 'all place addresses (list)' },
+      ]
+    },
+    {
+      id: 'nearby_Restaurant',
+      label: 'Nearby — Restaurant',
+      description: 'NEARBY_PLACES — restaurants from the MZone Location/NearbyPlaces endpoint',
+      apiType: 'NEARBY_PLACES',
+      params: [
+        { id: 'placesFound', label: 'number of places found' },
+        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
+        { id: 'closestPlaceName', label: 'closest place name' },
+        { id: 'closestPlaceAddress', label: 'closest place address' },
+        { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
+        { id: 'closestPlaceLat', label: 'closest place latitude' },
+        { id: 'closestPlaceLng', label: 'closest place longitude' },
+        { id: 'placeNames', label: 'all place names (list)' },
+        { id: 'placeAddresses', label: 'all place addresses (list)' },
+      ]
+    },
+    {
+      id: 'nearby_FastFood',
+      label: 'Nearby — Fast Food',
+      description: 'NEARBY_PLACES — fast-food outlets from the MZone Location/NearbyPlaces endpoint',
+      apiType: 'NEARBY_PLACES',
+      params: [
+        { id: 'placesFound', label: 'number of places found' },
+        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
+        { id: 'closestPlaceName', label: 'closest place name' },
+        { id: 'closestPlaceAddress', label: 'closest place address' },
+        { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
+        { id: 'closestPlaceLat', label: 'closest place latitude' },
+        { id: 'closestPlaceLng', label: 'closest place longitude' },
+        { id: 'placeNames', label: 'all place names (list)' },
+        { id: 'placeAddresses', label: 'all place addresses (list)' },
+      ]
+    },
+    {
+      id: 'nearby_FuelStation',
+      label: 'Nearby — Fuel Station',
+      description: 'NEARBY_PLACES — fuel stations from the MZone Location/NearbyPlaces endpoint',
+      apiType: 'NEARBY_PLACES',
+      params: [
+        { id: 'placesFound', label: 'number of places found' },
+        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
+        { id: 'closestPlaceName', label: 'closest place name' },
+        { id: 'closestPlaceAddress', label: 'closest place address' },
+        { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
+        { id: 'closestPlaceLat', label: 'closest place latitude' },
+        { id: 'closestPlaceLng', label: 'closest place longitude' },
+        { id: 'placeNames', label: 'all place names (list)' },
+        { id: 'placeAddresses', label: 'all place addresses (list)' },
+      ]
+    },
+    {
+      id: 'nearby_ChargingStation',
+      label: 'Nearby — EV Charging',
+      description: 'NEARBY_PLACES — EV charging stations from the MZone Location/NearbyPlaces endpoint',
+      apiType: 'NEARBY_PLACES',
+      params: [
+        { id: 'placesFound', label: 'number of places found' },
+        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
+        { id: 'closestPlaceName', label: 'closest place name' },
+        { id: 'closestPlaceAddress', label: 'closest place address' },
+        { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
+        { id: 'closestPlaceLat', label: 'closest place latitude' },
+        { id: 'closestPlaceLng', label: 'closest place longitude' },
+        { id: 'placeNames', label: 'all place names (list)' },
+        { id: 'placeAddresses', label: 'all place addresses (list)' },
+      ]
+    },
+    {
+      id: 'nearby_Parking',
+      label: 'Nearby — Parking',
+      description: 'NEARBY_PLACES — parking from the MZone Location/NearbyPlaces endpoint',
+      apiType: 'NEARBY_PLACES',
+      params: [
+        { id: 'placesFound', label: 'number of places found' },
+        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
+        { id: 'closestPlaceName', label: 'closest place name' },
+        { id: 'closestPlaceAddress', label: 'closest place address' },
+        { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
+        { id: 'closestPlaceLat', label: 'closest place latitude' },
+        { id: 'closestPlaceLng', label: 'closest place longitude' },
+        { id: 'placeNames', label: 'all place names (list)' },
+        { id: 'placeAddresses', label: 'all place addresses (list)' },
+      ]
+    },
+    {
+      id: 'nearby_CarRepair',
+      label: 'Nearby — Car Repair',
+      description: 'NEARBY_PLACES — car repair shops from the MZone Location/NearbyPlaces endpoint',
+      apiType: 'NEARBY_PLACES',
+      params: [
+        { id: 'placesFound', label: 'number of places found' },
+        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
+        { id: 'closestPlaceName', label: 'closest place name' },
+        { id: 'closestPlaceAddress', label: 'closest place address' },
+        { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
+        { id: 'closestPlaceLat', label: 'closest place latitude' },
+        { id: 'closestPlaceLng', label: 'closest place longitude' },
+        { id: 'placeNames', label: 'all place names (list)' },
+        { id: 'placeAddresses', label: 'all place addresses (list)' },
+      ]
+    },
+    {
+      id: 'nearby_CarWash',
+      label: 'Nearby — Car Wash',
+      description: 'NEARBY_PLACES — car washes from the MZone Location/NearbyPlaces endpoint',
+      apiType: 'NEARBY_PLACES',
+      params: [
+        { id: 'placesFound', label: 'number of places found' },
+        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
+        { id: 'closestPlaceName', label: 'closest place name' },
+        { id: 'closestPlaceAddress', label: 'closest place address' },
+        { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
+        { id: 'closestPlaceLat', label: 'closest place latitude' },
+        { id: 'closestPlaceLng', label: 'closest place longitude' },
+        { id: 'placeNames', label: 'all place names (list)' },
+        { id: 'placeAddresses', label: 'all place addresses (list)' },
+      ]
+    },
+    {
+      id: 'nearby_Hospital',
+      label: 'Nearby — Hospital',
+      description: 'NEARBY_PLACES — hospitals from the MZone Location/NearbyPlaces endpoint',
+      apiType: 'NEARBY_PLACES',
+      params: [
+        { id: 'placesFound', label: 'number of places found' },
+        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
+        { id: 'closestPlaceName', label: 'closest place name' },
+        { id: 'closestPlaceAddress', label: 'closest place address' },
+        { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
+        { id: 'closestPlaceLat', label: 'closest place latitude' },
+        { id: 'closestPlaceLng', label: 'closest place longitude' },
+        { id: 'placeNames', label: 'all place names (list)' },
+        { id: 'placeAddresses', label: 'all place addresses (list)' },
+      ]
+    },
+    {
+      id: 'nearby_Pharmacy',
+      label: 'Nearby — Pharmacy',
+      description: 'NEARBY_PLACES — pharmacies from the MZone Location/NearbyPlaces endpoint',
+      apiType: 'NEARBY_PLACES',
+      params: [
+        { id: 'placesFound', label: 'number of places found' },
+        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
+        { id: 'closestPlaceName', label: 'closest place name' },
+        { id: 'closestPlaceAddress', label: 'closest place address' },
+        { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
+        { id: 'closestPlaceLat', label: 'closest place latitude' },
+        { id: 'closestPlaceLng', label: 'closest place longitude' },
+        { id: 'placeNames', label: 'all place names (list)' },
+        { id: 'placeAddresses', label: 'all place addresses (list)' },
+      ]
+    },
+    {
+      id: 'nearby_Police',
+      label: 'Nearby — Police',
+      description: 'NEARBY_PLACES — police stations from the MZone Location/NearbyPlaces endpoint',
+      apiType: 'NEARBY_PLACES',
+      params: [
+        { id: 'placesFound', label: 'number of places found' },
+        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
+        { id: 'closestPlaceName', label: 'closest place name' },
+        { id: 'closestPlaceAddress', label: 'closest place address' },
+        { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
+        { id: 'closestPlaceLat', label: 'closest place latitude' },
+        { id: 'closestPlaceLng', label: 'closest place longitude' },
+        { id: 'placeNames', label: 'all place names (list)' },
+        { id: 'placeAddresses', label: 'all place addresses (list)' },
+      ]
+    },
+    {
+      id: 'nearby_Bank',
+      label: 'Nearby — Bank',
+      description: 'NEARBY_PLACES — banks from the MZone Location/NearbyPlaces endpoint',
+      apiType: 'NEARBY_PLACES',
+      params: [
+        { id: 'placesFound', label: 'number of places found' },
+        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
+        { id: 'closestPlaceName', label: 'closest place name' },
+        { id: 'closestPlaceAddress', label: 'closest place address' },
+        { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
+        { id: 'closestPlaceLat', label: 'closest place latitude' },
+        { id: 'closestPlaceLng', label: 'closest place longitude' },
+        { id: 'placeNames', label: 'all place names (list)' },
+        { id: 'placeAddresses', label: 'all place addresses (list)' },
+      ]
+    },
+    {
+      id: 'nearby_Atm',
+      label: 'Nearby — ATM',
+      description: 'NEARBY_PLACES — ATMs from the MZone Location/NearbyPlaces endpoint',
+      apiType: 'NEARBY_PLACES',
+      params: [
+        { id: 'placesFound', label: 'number of places found' },
+        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
+        { id: 'closestPlaceName', label: 'closest place name' },
+        { id: 'closestPlaceAddress', label: 'closest place address' },
+        { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
+        { id: 'closestPlaceLat', label: 'closest place latitude' },
+        { id: 'closestPlaceLng', label: 'closest place longitude' },
+        { id: 'placeNames', label: 'all place names (list)' },
+        { id: 'placeAddresses', label: 'all place addresses (list)' },
+      ]
+    },
+    {
+      id: 'nearby_Supermarket',
+      label: 'Nearby — Supermarket',
+      description: 'NEARBY_PLACES — supermarkets from the MZone Location/NearbyPlaces endpoint',
+      apiType: 'NEARBY_PLACES',
+      params: [
+        { id: 'placesFound', label: 'number of places found' },
+        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
+        { id: 'closestPlaceName', label: 'closest place name' },
+        { id: 'closestPlaceAddress', label: 'closest place address' },
+        { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
+        { id: 'closestPlaceLat', label: 'closest place latitude' },
+        { id: 'closestPlaceLng', label: 'closest place longitude' },
+        { id: 'placeNames', label: 'all place names (list)' },
+        { id: 'placeAddresses', label: 'all place addresses (list)' },
+      ]
+    },
+    {
+      id: 'nearby_Hotel',
+      label: 'Nearby — Hotel',
+      description: 'NEARBY_PLACES — hotels from the MZone Location/NearbyPlaces endpoint',
+      apiType: 'NEARBY_PLACES',
+      params: [
+        { id: 'placesFound', label: 'number of places found' },
+        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
+        { id: 'closestPlaceName', label: 'closest place name' },
+        { id: 'closestPlaceAddress', label: 'closest place address' },
+        { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
+        { id: 'closestPlaceLat', label: 'closest place latitude' },
+        { id: 'closestPlaceLng', label: 'closest place longitude' },
+        { id: 'placeNames', label: 'all place names (list)' },
+        { id: 'placeAddresses', label: 'all place addresses (list)' },
+      ]
+    },
+    {
+      id: PLACES_CUSTOM_ENDPOINT,
+      label: 'Nearby — Custom search…',
+      description: 'NEARBY_PLACES — free text: name the search yourself and say what to look for',
+      apiType: 'NEARBY_PLACES',
+      params: [
+        { id: 'placesFound', label: 'number of places found' },
+        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
+        { id: 'closestPlaceName', label: 'closest place name' },
+        { id: 'closestPlaceAddress', label: 'closest place address' },
+        { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
+        { id: 'placeNames', label: 'all place names (list)' },
+      ]
+    },
   ],
   GZONE: [
     {
@@ -1463,173 +1815,241 @@ const API_ENDPOINTS = {
         { id: 'condition', label: 'weather condition text' },
       ]
     },
+    // Retired here, kept resolvable: a rule deployed with one of these ids still
+    // imports with its variables and source keys intact. `deprecated` keeps them
+    // out of the dropdown, so they can be read but never newly authored.
     {
       id: 'google_nearby_gas_station',
-      label: 'Gas Station',
-      description: 'GOOGLE_NEARBY_SEARCH — gas/fuel stations, positioned by Place Search',
-      apiType: 'GOOGLE_NEARBY_SEARCH',
+      label: 'Gas Station (deprecated)',
+      description: 'NEARBY_PLACES — sent as category FuelStation; author new rules as nearby_FuelStation on MZONE',
+      apiType: 'NEARBY_PLACES',
+      deprecated: true,
       params: [
         { id: 'placesFound', label: 'number of places found' },
-        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['displayName', 'formattedAddress', 'distanceLabel'] },
-        { id: 'closestPlaceName', label: 'closest station name' },
-        { id: 'closestPlaceAddress', label: 'closest station address' },
-        { id: 'closestPlaceRating', label: 'closest station rating' },
-        { id: 'closestPlaceLat', label: 'closest station latitude' },
-        { id: 'closestPlaceLng', label: 'closest station longitude' },
-        { id: 'placeNames', label: 'all station names (list)' },
-        { id: 'placeAddresses', label: 'all station addresses (list)' },
+        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
+        { id: 'closestPlaceName', label: 'closest place name' },
+        { id: 'closestPlaceAddress', label: 'closest place address' },
+        { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
+        { id: 'closestPlaceLat', label: 'closest place latitude' },
+        { id: 'closestPlaceLng', label: 'closest place longitude' },
+        { id: 'placeNames', label: 'all place names (list)' },
+        { id: 'placeAddresses', label: 'all place addresses (list)' },
       ]
     },
     {
       id: 'google_nearby_coffee_shop',
-      label: 'Coffee Shop',
-      description: 'GOOGLE_NEARBY_SEARCH — coffee shops, positioned by Place Search',
-      apiType: 'GOOGLE_NEARBY_SEARCH',
+      label: 'Coffee Shop (deprecated)',
+      description: 'NEARBY_PLACES — sent as category Cafe; author new rules as nearby_Cafe on MZONE',
+      apiType: 'NEARBY_PLACES',
+      deprecated: true,
       params: [
         { id: 'placesFound', label: 'number of places found' },
-        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['displayName', 'formattedAddress', 'distanceLabel'] },
-        { id: 'closestPlaceName', label: 'closest shop name' },
-        { id: 'closestPlaceAddress', label: 'closest shop address' },
-        { id: 'closestPlaceRating', label: 'closest shop rating' },
-        { id: 'placeNames', label: 'all shop names (list)' },
-        { id: 'placeAddresses', label: 'all shop addresses (list)' },
+        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
+        { id: 'closestPlaceName', label: 'closest place name' },
+        { id: 'closestPlaceAddress', label: 'closest place address' },
+        { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
+        { id: 'closestPlaceLat', label: 'closest place latitude' },
+        { id: 'closestPlaceLng', label: 'closest place longitude' },
+        { id: 'placeNames', label: 'all place names (list)' },
+        { id: 'placeAddresses', label: 'all place addresses (list)' },
       ]
     },
     {
       id: 'google_nearby_restaurant',
-      label: 'Restaurant',
-      description: 'GOOGLE_NEARBY_SEARCH — restaurants, positioned by Place Search',
-      apiType: 'GOOGLE_NEARBY_SEARCH',
+      label: 'Restaurant (deprecated)',
+      description: 'NEARBY_PLACES — sent as category Restaurant; author new rules as nearby_Restaurant on MZONE',
+      apiType: 'NEARBY_PLACES',
+      deprecated: true,
       params: [
         { id: 'placesFound', label: 'number of places found' },
-        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['displayName', 'formattedAddress', 'distanceLabel'] },
-        { id: 'closestPlaceName', label: 'closest restaurant name' },
-        { id: 'closestPlaceAddress', label: 'closest restaurant address' },
-        { id: 'closestPlaceRating', label: 'closest restaurant rating' },
-        { id: 'placeNames', label: 'all restaurant names (list)' },
+        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
+        { id: 'closestPlaceName', label: 'closest place name' },
+        { id: 'closestPlaceAddress', label: 'closest place address' },
+        { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
+        { id: 'closestPlaceLat', label: 'closest place latitude' },
+        { id: 'closestPlaceLng', label: 'closest place longitude' },
+        { id: 'placeNames', label: 'all place names (list)' },
+        { id: 'placeAddresses', label: 'all place addresses (list)' },
       ]
     },
     {
       id: 'google_nearby_fast_food_restaurant',
-      label: 'Fast Food',
-      description: 'GOOGLE_NEARBY_SEARCH — fast food restaurants, positioned by Place Search',
-      apiType: 'GOOGLE_NEARBY_SEARCH',
+      label: 'Fast Food (deprecated)',
+      description: 'NEARBY_PLACES — sent as category FastFood; author new rules as nearby_FastFood on MZONE',
+      apiType: 'NEARBY_PLACES',
+      deprecated: true,
       params: [
         { id: 'placesFound', label: 'number of places found' },
-        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['displayName', 'formattedAddress', 'distanceLabel'] },
+        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
         { id: 'closestPlaceName', label: 'closest place name' },
         { id: 'closestPlaceAddress', label: 'closest place address' },
-        { id: 'closestPlaceRating', label: 'closest place rating' },
+        { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
+        { id: 'closestPlaceLat', label: 'closest place latitude' },
+        { id: 'closestPlaceLng', label: 'closest place longitude' },
+        { id: 'placeNames', label: 'all place names (list)' },
+        { id: 'placeAddresses', label: 'all place addresses (list)' },
       ]
     },
     {
       id: 'google_nearby_cafe',
-      label: 'Cafe',
-      description: 'GOOGLE_NEARBY_SEARCH — cafes, positioned by Place Search',
-      apiType: 'GOOGLE_NEARBY_SEARCH',
+      label: 'Cafe (deprecated)',
+      description: 'NEARBY_PLACES — sent as category Cafe; author new rules as nearby_Cafe on MZONE',
+      apiType: 'NEARBY_PLACES',
+      deprecated: true,
       params: [
         { id: 'placesFound', label: 'number of places found' },
-        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['displayName', 'formattedAddress', 'distanceLabel'] },
-        { id: 'closestPlaceName', label: 'closest cafe name' },
-        { id: 'closestPlaceAddress', label: 'closest cafe address' },
-        { id: 'closestPlaceRating', label: 'closest cafe rating' },
+        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
+        { id: 'closestPlaceName', label: 'closest place name' },
+        { id: 'closestPlaceAddress', label: 'closest place address' },
+        { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
+        { id: 'closestPlaceLat', label: 'closest place latitude' },
+        { id: 'closestPlaceLng', label: 'closest place longitude' },
+        { id: 'placeNames', label: 'all place names (list)' },
+        { id: 'placeAddresses', label: 'all place addresses (list)' },
       ]
     },
     {
       id: 'google_nearby_pharmacy',
-      label: 'Pharmacy',
-      description: 'GOOGLE_NEARBY_SEARCH — pharmacies, positioned by Place Search',
-      apiType: 'GOOGLE_NEARBY_SEARCH',
+      label: 'Pharmacy (deprecated)',
+      description: 'NEARBY_PLACES — sent as category Pharmacy; author new rules as nearby_Pharmacy on MZONE',
+      apiType: 'NEARBY_PLACES',
+      deprecated: true,
       params: [
         { id: 'placesFound', label: 'number of places found' },
-        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['displayName', 'formattedAddress', 'distanceLabel'] },
-        { id: 'closestPlaceName', label: 'closest pharmacy name' },
-        { id: 'closestPlaceAddress', label: 'closest pharmacy address' },
-        { id: 'closestPlaceRating', label: 'closest pharmacy rating' },
+        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
+        { id: 'closestPlaceName', label: 'closest place name' },
+        { id: 'closestPlaceAddress', label: 'closest place address' },
+        { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
+        { id: 'closestPlaceLat', label: 'closest place latitude' },
+        { id: 'closestPlaceLng', label: 'closest place longitude' },
+        { id: 'placeNames', label: 'all place names (list)' },
+        { id: 'placeAddresses', label: 'all place addresses (list)' },
       ]
     },
     {
       id: 'google_nearby_hospital',
-      label: 'Hospital',
-      description: 'GOOGLE_NEARBY_SEARCH — hospitals, positioned by Place Search',
-      apiType: 'GOOGLE_NEARBY_SEARCH',
+      label: 'Hospital (deprecated)',
+      description: 'NEARBY_PLACES — sent as category Hospital; author new rules as nearby_Hospital on MZONE',
+      apiType: 'NEARBY_PLACES',
+      deprecated: true,
       params: [
         { id: 'placesFound', label: 'number of places found' },
-        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['displayName', 'formattedAddress', 'distanceLabel'] },
-        { id: 'closestPlaceName', label: 'closest hospital name' },
-        { id: 'closestPlaceAddress', label: 'closest hospital address' },
+        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
+        { id: 'closestPlaceName', label: 'closest place name' },
+        { id: 'closestPlaceAddress', label: 'closest place address' },
+        { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
+        { id: 'closestPlaceLat', label: 'closest place latitude' },
+        { id: 'closestPlaceLng', label: 'closest place longitude' },
+        { id: 'placeNames', label: 'all place names (list)' },
+        { id: 'placeAddresses', label: 'all place addresses (list)' },
       ]
     },
     {
       id: 'google_nearby_atm',
-      label: 'ATM',
-      description: 'GOOGLE_NEARBY_SEARCH — ATMs, positioned by Place Search',
-      apiType: 'GOOGLE_NEARBY_SEARCH',
+      label: 'ATM (deprecated)',
+      description: 'NEARBY_PLACES — sent as category Atm; author new rules as nearby_Atm on MZONE',
+      apiType: 'NEARBY_PLACES',
+      deprecated: true,
       params: [
         { id: 'placesFound', label: 'number of places found' },
-        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['displayName', 'formattedAddress', 'distanceLabel'] },
-        { id: 'closestPlaceName', label: 'closest ATM name' },
-        { id: 'closestPlaceAddress', label: 'closest ATM address' },
+        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
+        { id: 'closestPlaceName', label: 'closest place name' },
+        { id: 'closestPlaceAddress', label: 'closest place address' },
+        { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
+        { id: 'closestPlaceLat', label: 'closest place latitude' },
+        { id: 'closestPlaceLng', label: 'closest place longitude' },
+        { id: 'placeNames', label: 'all place names (list)' },
+        { id: 'placeAddresses', label: 'all place addresses (list)' },
       ]
     },
     {
       id: 'google_nearby_parking',
-      label: 'Parking',
-      description: 'GOOGLE_NEARBY_SEARCH — parking, positioned by Place Search',
-      apiType: 'GOOGLE_NEARBY_SEARCH',
+      label: 'Parking (deprecated)',
+      description: 'NEARBY_PLACES — sent as category Parking; author new rules as nearby_Parking on MZONE',
+      apiType: 'NEARBY_PLACES',
+      deprecated: true,
       params: [
         { id: 'placesFound', label: 'number of places found' },
-        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['displayName', 'formattedAddress', 'distanceLabel'] },
-        { id: 'closestPlaceName', label: 'closest parking name' },
-        { id: 'closestPlaceAddress', label: 'closest parking address' },
+        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
+        { id: 'closestPlaceName', label: 'closest place name' },
+        { id: 'closestPlaceAddress', label: 'closest place address' },
+        { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
+        { id: 'closestPlaceLat', label: 'closest place latitude' },
+        { id: 'closestPlaceLng', label: 'closest place longitude' },
+        { id: 'placeNames', label: 'all place names (list)' },
+        { id: 'placeAddresses', label: 'all place addresses (list)' },
       ]
     },
     {
       id: 'google_nearby_electric_vehicle_charging_station',
-      label: 'EV Charging',
-      description: 'GOOGLE_NEARBY_SEARCH — EV charging stations, positioned by Place Search',
-      apiType: 'GOOGLE_NEARBY_SEARCH',
+      label: 'EV Charging (deprecated)',
+      description: 'NEARBY_PLACES — sent as category ChargingStation; author new rules as nearby_ChargingStation on MZONE',
+      apiType: 'NEARBY_PLACES',
+      deprecated: true,
       params: [
         { id: 'placesFound', label: 'number of places found' },
-        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['displayName', 'formattedAddress', 'distanceLabel'] },
-        { id: 'closestPlaceName', label: 'closest station name' },
-        { id: 'closestPlaceAddress', label: 'closest station address' },
+        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
+        { id: 'closestPlaceName', label: 'closest place name' },
+        { id: 'closestPlaceAddress', label: 'closest place address' },
+        { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
+        { id: 'closestPlaceLat', label: 'closest place latitude' },
+        { id: 'closestPlaceLng', label: 'closest place longitude' },
+        { id: 'placeNames', label: 'all place names (list)' },
+        { id: 'placeAddresses', label: 'all place addresses (list)' },
       ]
     },
     {
       id: 'google_nearby_car_wash',
-      label: 'Car Wash',
-      description: 'GOOGLE_NEARBY_SEARCH — car washes, positioned by Place Search',
-      apiType: 'GOOGLE_NEARBY_SEARCH',
+      label: 'Car Wash (deprecated)',
+      description: 'NEARBY_PLACES — sent as category CarWash; author new rules as nearby_CarWash on MZONE',
+      apiType: 'NEARBY_PLACES',
+      deprecated: true,
       params: [
         { id: 'placesFound', label: 'number of places found' },
-        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['displayName', 'formattedAddress', 'distanceLabel'] },
-        { id: 'closestPlaceName', label: 'closest car wash name' },
-        { id: 'closestPlaceAddress', label: 'closest car wash address' },
+        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
+        { id: 'closestPlaceName', label: 'closest place name' },
+        { id: 'closestPlaceAddress', label: 'closest place address' },
+        { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
+        { id: 'closestPlaceLat', label: 'closest place latitude' },
+        { id: 'closestPlaceLng', label: 'closest place longitude' },
+        { id: 'placeNames', label: 'all place names (list)' },
+        { id: 'placeAddresses', label: 'all place addresses (list)' },
       ]
     },
     {
       id: 'google_nearby_car_repair',
-      label: 'Car Repair',
-      description: 'GOOGLE_NEARBY_SEARCH — car repair shops, positioned by Place Search',
-      apiType: 'GOOGLE_NEARBY_SEARCH',
+      label: 'Car Repair (deprecated)',
+      description: 'NEARBY_PLACES — sent as category CarRepair; author new rules as nearby_CarRepair on MZONE',
+      apiType: 'NEARBY_PLACES',
+      deprecated: true,
       params: [
         { id: 'placesFound', label: 'number of places found' },
-        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['displayName', 'formattedAddress', 'distanceLabel'] },
-        { id: 'closestPlaceName', label: 'closest repair shop name' },
-        { id: 'closestPlaceAddress', label: 'closest repair shop address' },
+        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
+        { id: 'closestPlaceName', label: 'closest place name' },
+        { id: 'closestPlaceAddress', label: 'closest place address' },
+        { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
+        { id: 'closestPlaceLat', label: 'closest place latitude' },
+        { id: 'closestPlaceLng', label: 'closest place longitude' },
+        { id: 'placeNames', label: 'all place names (list)' },
+        { id: 'placeAddresses', label: 'all place addresses (list)' },
       ]
     },
     {
       id: 'google_nearby_convenience_store',
-      label: 'Convenience Store',
-      description: 'GOOGLE_NEARBY_SEARCH — convenience stores, positioned by Place Search',
-      apiType: 'GOOGLE_NEARBY_SEARCH',
+      label: 'Convenience Store (deprecated)',
+      description: 'NEARBY_PLACES — sent as category Supermarket; author new rules as nearby_Supermarket on MZONE',
+      apiType: 'NEARBY_PLACES',
+      deprecated: true,
       params: [
         { id: 'placesFound', label: 'number of places found' },
-        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['displayName', 'formattedAddress', 'distanceLabel'] },
-        { id: 'closestPlaceName', label: 'closest store name' },
-        { id: 'closestPlaceAddress', label: 'closest store address' },
+        { id: 'places', label: 'place list — name, address & distance', source: 'places', fields: ['name', 'address', 'distanceLabel'] },
+        { id: 'closestPlaceName', label: 'closest place name' },
+        { id: 'closestPlaceAddress', label: 'closest place address' },
+        { id: 'closestPlaceDistanceMeters', label: 'closest place distance (m)' },
+        { id: 'closestPlaceLat', label: 'closest place latitude' },
+        { id: 'closestPlaceLng', label: 'closest place longitude' },
+        { id: 'placeNames', label: 'all place names (list)' },
+        { id: 'placeAddresses', label: 'all place addresses (list)' },
       ]
     },
   ],

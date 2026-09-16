@@ -217,14 +217,19 @@
         },
         "search": {
           "$ref": "#/definitions/searchSpec",
-          "description": "Where a place search is anchored: near the vehicle, along the route to a destination, at the destination, or at a fixed point. Accepted only on google_nearby_* expressions of External Source - on any other endpoint it is an error, not a warning, because the request builder for that endpoint would silently ignore it."
+          "description": "Where a place search is anchored: near the vehicle, along the route to a destination, at the destination, or at a fixed point. Accepted only on a places expression - nearby_<Category> on MZONE, or a deprecated google_nearby_* on External Source. On any other endpoint it is an error, not a warning, because the request builder for that endpoint would silently ignore it."
         }
       },
       "additionalProperties": false,
       "allOf": [
         {
           "if": { "required": ["search"] },
-          "then": { "properties": { "id": { "pattern": "^google_nearby_.+" }, "dataSource": { "const": "External Source" } } }
+          "then": {
+            "anyOf": [
+              { "properties": { "id": { "pattern": "^nearby_.+" }, "dataSource": { "const": "MZONE" } } },
+              { "properties": { "id": { "pattern": "^google_nearby_.+" }, "dataSource": { "const": "External Source" } } }
+            ]
+          }
         },
         {
           "description": "Wellness triggers: restrict condition parameters and extractable keys to the fields actually emitted in wellness_measurement_taken attrs (see WellnessRepositoryImpl in FleetDrive-Android).",
@@ -667,9 +672,31 @@
       "additionalProperties": false
     },
 
+    "nearbyPlaceCategory": {
+      "type": "string",
+      "enum": [
+        "Cafe",
+        "Restaurant",
+        "FastFood",
+        "FuelStation",
+        "ChargingStation",
+        "Parking",
+        "CarRepair",
+        "CarWash",
+        "Hospital",
+        "Pharmacy",
+        "Police",
+        "Bank",
+        "Atm",
+        "Supermarket",
+        "Hotel"
+      ],
+      "description": "The place categories the NearbyPlaces endpoint accepts, spelt exactly as it spells them. A rule names one as the suffix of a nearby_<Category> trigger id on MZONE - nearby_FuelStation, nearby_Pharmacy - so the vocabulary lives here rather than in a field of its own, and no $ref points at it. An authoring tool offers these fifteen as the dropdown behind the id, and offers free text as the alternative (any other suffix, plus searchSpec.query). Case and separators are not forgiving: nearby_fuel_station is a validation error naming the right spelling, not a category."
+    },
+
     "searchSpec": {
       "type": "object",
-      "description": "A search block on a google_nearby_* trigger expression. The engine forwards the mode and its anchors to the app as request parameters (searchMode, destinationLatitude, destinationLongitude, maxDetourMeters) and computes no geometry.",
+      "description": "A search block on a places trigger expression - nearby_<Category> on MZONE, or a deprecated google_nearby_* on External Source. The engine forwards the subject and the anchors to the app as request parameters (category or query, radius, limit, searchMode, destinationLatitude, destinationLongitude, maxDetourMeters) and computes no geometry.",
       "required": ["mode"],
       "properties": {
         "mode": {
@@ -721,7 +748,18 @@
         "maxDetourMeters": {
           "type": "integer",
           "minimum": 1,
-          "description": "Required for along_route: the maximum additional driving distance a result may add to the trip, detour(p) = distance(origin -> p -> destination) - distance(origin -> destination), using driving distance. Forbidden on other modes."
+          "description": "Required for along_route: the maximum additional distance a result may add to the trip, detour(p) = distance(origin -> p -> destination) - distance(origin -> destination). Forbidden on other modes. The NearbyPlaces endpoint takes no route, so a handler built on it filters on straight-line distance, which is a lower bound of the driving detour and therefore slightly permissive - see LOCATION_SEARCH_INTEGRATION.md."
+        },
+        "query": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "description": "Free-text search term, sent instead of a category. Required when the nearby_* id suffix is not one of nearbyPlaceCategory - the suffix is then a label the author picks, and it stays the event name the response is stored under. An error on a category id, so nearby_FuelStation can never be silently narrowed to something the backend would answer differently."
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum number of places to return, forwarded to the endpoint as-is. The endpoint's own maximum is not documented, so no upper bound is enforced here. Omitted means the endpoint's default. It is part of the search's identity, not presentation: two rules differing only in limit are two searches."
         }
       },
       "additionalProperties": false,

@@ -826,7 +826,11 @@ function renderSingleTrigger(container, depth, data = null) {
     // Capture current value before removing old element
     const old = idContainer.querySelector('[data-field="triggerId"]');
     const prevValue = old ? old.value : (data?.id || '');
-    if (old) old.remove();
+    // A typed places id sits in a wrapper of its own, with help text and the way
+    // back to the list; a plain select is a direct child and idContainer stays.
+    const wrapper = old?.closest('.form-row');
+    if (wrapper && wrapper !== idContainer) wrapper.remove();
+    else if (old) old.remove();
     const oldList = idContainer.querySelector('datalist');
     if (oldList) oldList.remove();
 
@@ -836,14 +840,31 @@ function renderSingleTrigger(container, depth, data = null) {
     if (isApi) {
       // API source — show endpoints from API_ENDPOINTS
       const endpoints = API_ENDPOINTS[ds] || [];
+      const matched = endpoints.find(ep => ep.id === prevValue);
+
+      // A free-text place search names itself. The id is typed, not picked, and
+      // losing it on import would silently rewrite the rule.
+      if (prevValue && !matched && placesPrefixOf(prevValue, ds) !== null) {
+        idContainer.append(buildCustomPlaceIdInput(prevValue, ds));
+        return;
+      }
+
       const sel = h('select', {});
       sel.dataset.field = 'triggerId';
       sel.append(h('option', { value: '' }, '\u2014 Select API endpoint \u2014'));
+      // A deprecated endpoint is offered only to the rule already on it, so an
+      // import keeps its id while no new rule can be authored onto one.
       for (const ep of endpoints) {
+        if (ep.deprecated && ep.id !== prevValue) continue;
         sel.append(h('option', { value: ep.id }, `${ep.label} \u2014 ${ep.description}`));
       }
       if (prevValue) sel.value = prevValue;
-      sel.addEventListener('change', onFormChange);
+      sel.addEventListener('change', () => {
+        if (sel.value === PLACES_CUSTOM_ENDPOINT) {
+          sel.replaceWith(buildCustomPlaceIdInput(PLACES_PREFIX, ds));
+        }
+        onFormChange();
+      });
       idContainer.append(sel);
     } else {
       const scope = document.getElementById('rule-scope')?.value || 'global';
@@ -871,6 +892,31 @@ function renderSingleTrigger(container, depth, data = null) {
         idContainer.append(sel);
       }
     }
+  }
+
+  /**
+   * A places id typed rather than picked. Keeps `data-field="triggerId"` on the
+   * one control that holds the whole id, so every reader of it stays unchanged.
+   */
+  function buildCustomPlaceIdInput(value, ds) {
+    const wrap = h('div', { className: 'form-row' });
+    const input = h('input', { type: 'text', placeholder: `${PLACES_PREFIX}truck_stop`, onInput: 'onFormChange()' });
+    input.dataset.field = 'triggerId';
+    input.value = value;
+    input.addEventListener('input', () => { updateConditionsVisibility(); updateVisibility(); });
+    const back = h('button', { type: 'button', className: 'btn-add', style: 'margin-top:6px' }, '\u2190 Pick from the endpoint list');
+    back.addEventListener('click', () => {
+      const old = idContainer.querySelector('[data-field="triggerId"]');
+      if (old) old.closest('.form-row')?.remove();
+      buildIdInput(ds);
+      updateConditionsVisibility();
+      updateVisibility();
+      onFormChange();
+    });
+    wrap.append(input, h('div', { className: 'help-text' },
+      `The id is the label this search is stored under. Name a category after ${PLACES_PREFIX} to use one of the endpoint\u2019s own \u2014 ${NEARBY_PLACE_CATEGORIES.join(', ')} \u2014 or anything else and say what to look for in Search for.`
+    ), back);
+    return wrap;
   }
 
   // Expose so scope changes can trigger a rebuild without clearing data source
@@ -1072,8 +1118,16 @@ function renderSingleTrigger(container, depth, data = null) {
     epContainer.classList.toggle('hidden', ds !== 'UserCommand' && !hasEpData);
 
     const wasHidden = searchContainer.classList.contains('hidden');
-    const isPlaces = isPlacesExpressionJSON({ id: container.querySelector('[data-field="triggerId"]')?.value, dataSource: ds });
+    const id = container.querySelector('[data-field="triggerId"]')?.value;
+    const isPlaces = isPlacesExpressionJSON({ id, dataSource: ds });
     searchContainer.classList.toggle('hidden', !isPlaces);
+    const suffix = isPlaces ? placesSuffixOf(id, ds) : null;
+    if (suffix !== null && placeCategoryOf(suffix, placesPrefixOf(id, ds)) === null) {
+      searchContainer.dataset.freeText = '1';
+    } else {
+      delete searchContainer.dataset.freeText;
+    }
+    searchContainer._syncSearchFields?.();
     if (isPlaces && wasHidden) renderSearchDestinationCandidates();
   }
   dsSelect.addEventListener('change', updateVisibility);
@@ -1207,10 +1261,10 @@ function renderSearchDestinationCandidates() {
 }
 
 /**
- * The search block of a google_nearby_* trigger. LocationSearchPlanner keys the
- * freshness gate off the block's presence, so an implicit nearby search would
- * share one cached response with every other rule on the same place type - the
- * builder emits a block for every places trigger instead of leaving it out.
+ * The search block of a places trigger. LocationSearchPlanner keys the freshness
+ * gate off the block's presence, so an implicit nearby search would share one
+ * cached response with every other rule on the same category - the builder emits
+ * a block for every places trigger instead of leaving it out.
  */
 function renderSearchSubForm(container, data = null) {
   container.innerHTML = '';
@@ -1296,11 +1350,25 @@ function renderSearchSubForm(container, data = null) {
   detourInput.dataset.field = 'search-detour';
   if (data?.maxDetourMeters != null) detourInput.value = data.maxDetourMeters;
 
+  const limitInput = h('input', { type: 'number', min: '1', step: '1', placeholder: "endpoint's default", onInput: 'onFormChange()' });
+  limitInput.dataset.field = 'search-limit';
+  if (data?.limit != null) limitInput.value = data.limit;
+
   const radiusField = createField('Radius (m)', radiusInput);
   const detourField = h('div', { className: 'hidden', dataset: { field: 'search-detour-field' } }, createField('Max detour (m)', detourInput));
   container.append(h('div', { className: 'form-grid' }, radiusField, detourField));
   const radiusHint = h('div', { className: 'help-text', dataset: { field: 'search-radius-hint' } });
   container.append(radiusHint);
+
+  const queryInput = h('input', { type: 'text', placeholder: 'e.g. truck stop with showers', onInput: 'onFormChange()' });
+  queryInput.dataset.field = 'search-query';
+  if (typeof data?.query === 'string') queryInput.value = data.query;
+  const queryField = h('div', { className: 'hidden', dataset: { field: 'search-query-field' } },
+    createField('Search for', queryInput,
+      'Free text sent instead of a category. Required when the trigger ID names a label of your own rather than one of the endpoint\u2019s categories.')
+  );
+  container.append(h('div', { className: 'form-grid' }, queryField, createField('Limit', limitInput,
+    'Maximum places to return. Part of the search\u2019s identity, not its presentation \u2014 two rules differing only in limit are two searches.')));
 
   function updateModeFields() {
     const mode = container.querySelector('[data-field="search-mode"]:checked')?.value || '';
@@ -1319,8 +1387,12 @@ function renderSearchSubForm(container, data = null) {
         ? 'The engine resolves the destination from the named trigger’s newest response and holds the search until it can, so a changed destination needs nothing of the app.'
         : 'No trigger of this rule delivers a destination, and there is no app-supplied fallback — add a jobs endpoint and read the destination from its response.';
     radiusHint.textContent = mode === 'along_route'
-      ? 'Radius bounds how far ahead a place may be as driving distance from the current position; max detour bounds the extra driving it costs. Blank radius uses the engine default of 500 m.'
+      ? 'Radius bounds how far ahead a place may be from the current position; max detour bounds the extra distance it costs. Blank radius uses the engine default of 500 m.'
       : 'Blank uses the engine default of 500 m.';
+
+    // A category names the subject already, so a query there would narrow it
+    // without saying so - the engine rejects that rather than sending it.
+    queryField.classList.toggle('hidden', !container.dataset.freeText);
   }
   updateModeFields();
   container._syncSearchFields = updateModeFields;
@@ -1368,6 +1440,12 @@ function buildSearchJSON(box) {
   if (mode === 'along_route') {
     const detour = num('search-detour');
     if (detour !== undefined) search.maxDetourMeters = detour;
+  }
+  const limit = num('search-limit');
+  if (limit !== undefined) search.limit = limit;
+  if (box.dataset.freeText) {
+    const query = text('search-query');
+    if (query) search.query = query;
   }
   return search;
 }
@@ -3388,7 +3466,9 @@ function validateRule(jsonArray) {
 }
 
 const SEARCH_MODE_LIST = SEARCH_MODES.map(m => m.id).join(', ');
-const SEARCH_ALLOWED_FIELDS = ['mode', 'destination', 'point', 'radius', 'maxDetourMeters'];
+const SEARCH_ALLOWED_FIELDS = ['mode', 'destination', 'point', 'radius', 'maxDetourMeters', 'query', 'limit'];
+const SEARCH_NUMBER_FIELDS = ['radius', 'maxDetourMeters', 'limit'];
+const PLACE_CATEGORY_LIST = NEARBY_PLACE_CATEGORIES.join(', ');
 const SEARCH_DESTINATION_FIELDS = ['triggerId', 'latField', 'lngField'];
 const LEGACY_RADIUS_PARAMETER = 'radius';
 
@@ -3421,14 +3501,45 @@ function forEachSingleExpression(expr, path, action) {
   expr.expressions.forEach((e, i) => forEachSingleExpression(e, `${path}.expressions[${i}]`, action));
 }
 
-function isPlacesId(id) {
-  return typeof id === 'string' && id.startsWith(GOOGLE_NEARBY_PREFIX) && id.length > GOOGLE_NEARBY_PREFIX.length;
-}
 function isExternalSourceName(dataSource) {
   return String(dataSource || '').toLowerCase() === 'external source';
 }
+function isMzoneName(dataSource) {
+  return String(dataSource || '').toUpperCase() === 'MZONE';
+}
+
+/**
+ * Which places grammar an expression is written in, or null when it is not a
+ * place search at all. Mirrors RulesValidator.placesPrefixOf: `nearby_*` counts
+ * only on MZONE and `google_nearby_*` only on External Source, so an id that
+ * collides with another source's event stream is never read as a search.
+ */
+function placesPrefixOf(id, dataSource) {
+  if (typeof id !== 'string') return null;
+  if (isMzoneName(dataSource) && id.startsWith(PLACES_PREFIX)) return PLACES_PREFIX;
+  if (isExternalSourceName(dataSource) && id.startsWith(LEGACY_PLACES_PREFIX)) return LEGACY_PLACES_PREFIX;
+  return null;
+}
 function isPlacesExpressionJSON(expr) {
-  return isPlacesId(expr?.id) && isExternalSourceName(expr?.dataSource);
+  const prefix = placesPrefixOf(expr?.id, expr?.dataSource);
+  return prefix !== null && expr.id.length > prefix.length;
+}
+function placesSuffixOf(id, dataSource) {
+  const prefix = placesPrefixOf(id, dataSource);
+  return prefix === null ? null : id.slice(prefix.length);
+}
+
+/** The category a suffix names, or null when it is a free-text label. */
+function placeCategoryOf(suffix, prefix) {
+  if (prefix === LEGACY_PLACES_PREFIX) return LEGACY_PLACE_TYPES[suffix] || null;
+  return NEARBY_PLACE_CATEGORIES.includes(suffix) ? suffix : null;
+}
+
+/** The category a suffix was meant to be when it differs only in case or separators. */
+function suggestPlaceCategory(suffix) {
+  const normalized = String(suffix).replace(/[^a-z0-9]/gi, '').toLowerCase();
+  if (!normalized) return null;
+  return NEARBY_PLACE_CATEGORIES.find(c => c.toLowerCase() === normalized) || null;
 }
 
 function searchNumberError(searchPath, field, value) {
@@ -3467,11 +3578,15 @@ function validateSearch(rule, errors, warnings, prefix) {
 
   forEachSingleExpression(rule?.triggerExpression, 'triggerExpression', (expr, path) => {
     const isPlaces = isPlacesExpressionJSON(expr);
+    const placesPrefix = placesPrefixOf(expr?.id, expr?.dataSource);
+    if (placesPrefix !== null) {
+      validatePlacesSubject(expr, `${prefix}${path}`, placesPrefix, errors, warnings);
+    }
 
     if (declaredValue(expr, 'POI') !== undefined) {
       warnings.push(isPlaces
         ? `${prefix}${path}.POI is read nowhere; a fixed anchor is search.point with "mode": "near_point"`
-        : `${prefix}${path}.POI is read nowhere and can be removed; search is accepted only on ${GOOGLE_NEARBY_PREFIX}* expressions of External Source, so there is nothing to move it to here`);
+        : `${prefix}${path}.POI is read nowhere and can be removed; search is accepted only on a places expression (${PLACES_PREFIX}<Category> on MZONE), so there is nothing to move it to here`);
     }
 
     if (isPlaces && Array.isArray(expr.conditions)) {
@@ -3495,7 +3610,7 @@ function validateSearch(rule, errors, warnings, prefix) {
     const search = element;
 
     if (!isPlaces) {
-      errors.push(`${prefix}${searchPath} is only supported on ${GOOGLE_NEARBY_PREFIX}* expressions of External Source; '${expr.id}' (${expr.dataSource}) has no request builder that reads it, so it would be silently ignored`);
+      errors.push(`${prefix}${searchPath} is only supported on a places expression - ${PLACES_PREFIX}<Category> on MZONE, or a deprecated ${LEGACY_PLACES_PREFIX}* on External Source; '${expr.id}' (${expr.dataSource}) has no request builder that reads it, so it would be silently ignored`);
     }
 
     for (const field of Object.keys(search)) {
@@ -3550,12 +3665,59 @@ function validateSearch(rule, errors, warnings, prefix) {
       validateSearchPoint(search.point, `${prefix}${searchPath}.point`, errors);
     }
 
-    for (const field of ['radius', 'maxDetourMeters']) {
+    for (const field of SEARCH_NUMBER_FIELDS) {
       if (!hasKey(search, field)) continue;
       const message = searchNumberError(`${prefix}${searchPath}`, field, search[field]);
       if (message) errors.push(message);
     }
+
+    if (hasKey(search, 'query')) {
+      const query = declaredValue(search, 'query');
+      if (typeof query !== 'string' || query.trim() === '') {
+        errors.push(`${prefix}${searchPath}.query must be a non-blank string - got ${JSON.stringify(query)}`);
+      }
+    }
   });
+}
+
+/**
+ * What a place search is for. Mirrors RulesValidator.validatePlacesSubject: the
+ * subject lives in the id suffix - a category the backend knows, or a label of
+ * the author's own with search.query beside it - so a misspelt category is not a
+ * category at all, and `query` on a category id would narrow it without saying so.
+ */
+function validatePlacesSubject(expr, path, prefix, errors, warnings) {
+  const suffix = expr.id.slice(prefix.length);
+  const search = isPlainObject(expr.search) ? expr.search : null;
+  const declaredQuery = declaredValue(search, 'query');
+
+  if (suffix === '') {
+    errors.push(`${path}.id '${expr.id}' has nothing after '${prefix}', so the search has no subject. The suffix is either a place category - one of ${PLACE_CATEGORY_LIST} - or a label of your own for a free-text search, which then says what to look for in search.query`);
+    return;
+  }
+
+  const legacyCategory = prefix === LEGACY_PLACES_PREFIX ? (LEGACY_PLACE_TYPES[suffix] || null) : null;
+  if (prefix === LEGACY_PLACES_PREFIX) {
+    if (legacyCategory === null) {
+      errors.push(`${path}.id '${expr.id}' names nothing the engine can ask for: '${suffix}' has no category on the MZone endpoint that replaced the Google one (the types still mapped are ${Object.keys(LEGACY_PLACE_TYPES).sort().join(', ')}). Write it as '${PLACES_PREFIX}<Category>' on MZONE - one of ${PLACE_CATEGORY_LIST} - or as a free-text search declaring search.query`);
+      return;
+    }
+    warnings.push(`${path}.id '${expr.id}' is deprecated; the replacement is id '${PLACES_PREFIX}${legacyCategory}' on dataSource 'MZONE'. It still works: the search is sent as category '${legacyCategory}' and the response is still stored under 'External Source', so this rule's conditions and variables keep resolving`);
+  }
+
+  const category = legacyCategory || placeCategoryOf(suffix, prefix);
+  if (category !== null) {
+    if (declaredQuery !== undefined) {
+      errors.push(`${path}.search.query is not allowed on '${expr.id}': the id already names the category '${category}', and a query would silently narrow it to something the category no longer describes. A free-text search is its own expression, with a label of your own as the suffix`);
+    }
+    return;
+  }
+  if (declaredQuery !== undefined) return;
+
+  const suggestion = suggestPlaceCategory(suffix);
+  errors.push(suggestion !== null
+    ? `${path}.id '${expr.id}' is not a place category - did you mean '${PLACES_PREFIX}${suggestion}'? Categories are spelt exactly as the backend spells them, so '${suffix}' is read as a free-text label instead and would have to declare a non-blank search.query of its own`
+    : `${path}.search.query is required on '${expr.id}': '${suffix}' is not one of the place categories (${PLACE_CATEGORY_LIST}), so the id is a free-text search and has to say what to search for`);
 }
 
 function validateSearchDestination(element, path, ownId, expressions, searching, errors, warnings) {
@@ -3782,7 +3944,7 @@ function collectTriggerIds(expr) {
 
 function validateTriggerDataSource(expr, warnings) {
   if (!expr) return;
-  if (expr.type === 'SINGLE' && expr.id && expr.dataSource) {
+  if (expr.type === 'SINGLE' && expr.id && expr.dataSource && placesPrefixOf(expr.id, expr.dataSource) === null) {
     const validIds = TRIGGER_IDS[expr.dataSource];
     if (validIds && validIds.length > 0 && !validIds.includes(expr.id)) {
       warnings.push(`Trigger ID "${expr.id}" is not a known ID for data source "${expr.dataSource}"`);
@@ -4086,6 +4248,13 @@ function highlightSearchFieldErrors(rule) {
     if (mode === 'along_route' && (!hasKey(search, 'maxDetourMeters') || searchNumberError('', 'maxDetourMeters', search.maxDetourMeters))) {
       mark('search-detour');
     }
+    if (hasKey(search, 'limit') && searchNumberError('', 'limit', search.limit)) mark('search-limit');
+
+    const suffix = placesSuffixOf(expr.id, expr.dataSource);
+    const freeText = suffix !== null && placeCategoryOf(suffix, placesPrefixOf(expr.id, expr.dataSource)) === null;
+    const query = declaredValue(search, 'query');
+    if (freeText ? (typeof query !== 'string' || !query.trim()) : query !== undefined) mark('search-query');
+
     if (bad) box.closest('.item-card')?.classList.add('field-error');
   });
 }
