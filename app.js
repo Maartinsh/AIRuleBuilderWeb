@@ -3025,97 +3025,36 @@ function fieldVal(container, field) {
   return el?.value?.trim() || '';
 }
 
-/* =========================================================
-   MULTI-RULE MANAGEMENT
-   ========================================================= */
-
 function saveActiveRule() {
   if (activeRuleIndex >= 0 && activeRuleIndex < rules.length) {
     rules[activeRuleIndex] = buildRuleJSON();
   }
 }
 
-function switchToRule(index) {
-  if (index === activeRuleIndex || index < 0 || index >= rules.length) return;
-  saveActiveRule();
-  activeRuleIndex = index;
-  populateFormFromRule(rules[activeRuleIndex]);
-  renderRuleList();
-  updatePreview();
-}
-
 function addNewRule() {
   saveActiveRule();
-  rules.push({ id: `rule_${rules.length + 1}`, sessionScope: 'global', triggerExpression: { type: 'GROUP', groupType: 'AND' } });
-  activeRuleIndex = rules.length - 1;
-  populateFormFromRule(rules[activeRuleIndex]);
-  renderRuleList();
+  if (rules.some(ruleIsStarted) && !confirm('Start a new rule? Upload or export your current rule first. Continuing will discard this draft.')) return;
+  rules = [blankRule()];
+  activeRuleIndex = 0;
+  topicConfigs = {};
+  _setLoadedBadge(null);
+  populateFormFromRule(rules[0]);
   updatePreview();
-  showToast(`Added rule #${rules.length}`);
-}
-
-function deleteRule(index) {
-  if (rules.length <= 1) { showToast('Cannot delete the last rule'); return; }
-  const deletedId = rules[index]?.id || `#${index + 1}`;
-  rules.splice(index, 1);
-  if (activeRuleIndex >= rules.length) activeRuleIndex = rules.length - 1;
-  else if (activeRuleIndex > index) activeRuleIndex--;
-  populateFormFromRule(rules[activeRuleIndex]);
-  renderRuleList();
-  updatePreview();
-  showToast(`Deleted "${deletedId}"`);
-}
-
-function duplicateRule(index) {
-  if (index < 0 || index >= rules.length) return;
-  saveActiveRule();
-  const source = rules[index];
-  // Deep clone via JSON round-trip (rules are plain JSON objects)
-  const clone = JSON.parse(JSON.stringify(source));
-  clone.id = _uniqueRuleId(source.id || `rule_${index + 1}`);
-  rules.splice(index + 1, 0, clone);
-  activeRuleIndex = index + 1;
-  populateFormFromRule(rules[activeRuleIndex]);
-  renderRuleList();
-  updatePreview();
-  showToast(`Duplicated as "${clone.id}"`);
-}
-
-/** Returns an ID based on `baseId` that doesn't collide with existing rule IDs. */
-function _uniqueRuleId(baseId) {
-  const existing = new Set(rules.map(r => r.id).filter(Boolean));
-  // Strip any existing _copyN suffix so repeated duplicates don't chain
-  const root = baseId.replace(/_copy\d*$/, '');
-  let candidate = `${root}_copy`;
-  let n = 2;
-  while (existing.has(candidate)) {
-    candidate = `${root}_copy${n}`;
-    n++;
-  }
-  return candidate;
+  showToast('New rule started');
 }
 
 function renderRuleList() {
   const list = document.getElementById('rule-list');
   list.innerHTML = '';
-  rules.forEach((rule, i) => {
-    const item = h('div', {
-      className: `rule-list-item${i === activeRuleIndex ? ' active' : ''}`,
-      onClick: (e) => { if (!e.target.closest('.rule-list-action')) switchToRule(i); }
-    },
-      h('span', { className: 'rule-list-id' }, rule.id || `(untitled #${i + 1})`),
-      h('span', { className: 'rule-list-scope' },
-        rule.conversation === 'manual'
-          ? `${rule.sessionScope || 'global'} · manual`
-          : (rule.sessionScope || 'global')),
-      h('button', { className: 'rule-list-action rule-list-duplicate', title: 'Duplicate rule',
-        onClick: (e) => { e.stopPropagation(); duplicateRule(i); } }, '\u29C9'),
-      h('button', { className: 'rule-list-action rule-list-delete', title: 'Delete rule',
-        onClick: (e) => { e.stopPropagation(); deleteRule(i); } }, '\u00D7')
-    );
-    list.append(item);
-  });
-  document.getElementById('rule-count-badge').textContent = rules.length;
+  const rule = rules[activeRuleIndex];
+  if (!rule) return;
+  list.append(h('div', { className: 'rule-list-item active' },
+    h('span', { className: 'rule-list-id' }, rule.id || '(untitled rule)'),
+    h('span', { className: 'rule-list-scope' },
+      rule.conversation === 'manual'
+        ? `${rule.sessionScope || 'global'} · manual`
+        : (rule.sessionScope || 'global'))
+  ));
 }
 
 /* =========================================================
@@ -3140,7 +3079,7 @@ function updatePreview() {
   const bytes = new Blob([jsonStr]).size;
   const lines = jsonStr.split('\n').length;
   document.getElementById('preview-meta').textContent =
-    `${rules.length} rule(s), ${lines} lines, ${bytes} bytes`;
+    `1 rule, ${lines} lines, ${bytes} bytes`;
 
   // Live validation (non-blocking) — the schema validator checks the rules array
   liveValidate(rules);
@@ -3219,10 +3158,19 @@ function migrateRule(rule) {
   return rule;
 }
 
-/**
- * Handles JSON file upload. Parses the file, validates it, then loads all
- * rules into the editor and shows validation results in the preview panel.
- */
+function readSingleRuleDocument(parsed) {
+  const envelope = Array.isArray(parsed) && parsed.length === 1 && parsed[0]?.rules
+    ? parsed[0] : parsed;
+  const loaded = Array.isArray(envelope) ? envelope : (envelope?.rules ?? [envelope]);
+  if (!Array.isArray(loaded) || loaded.length !== 1) {
+    throw new Error('Import exactly one rule at a time. Split multi-rule files into separate files.');
+  }
+  if (!loaded[0] || typeof loaded[0] !== 'object' || Array.isArray(loaded[0]) || loaded[0].rules) {
+    throw new Error('The file must contain one rule or one document with a single rule.');
+  }
+  return { loaded, topics: envelope.topics };
+}
+
 function uploadJSON(input) {
   const file = input.files[0];
   input.value = ''; // reset so same file can be re-uploaded
@@ -3238,10 +3186,11 @@ function uploadJSON(input) {
       return;
     }
 
-    // Normalise: accept a single rule object or an array of rules
-    const loaded = Array.isArray(parsed) ? parsed : (parsed.rules ? parsed.rules : [parsed]);
-    if (!loaded.length) {
-      showToast('No rules found in uploaded file.', 4000);
+    let loaded, topics;
+    try {
+      ({ loaded, topics } = readSingleRuleDocument(parsed));
+    } catch (err) {
+      showToast(err.message, 5000);
       return;
     }
     loaded.forEach(migrateRule);
@@ -3254,7 +3203,8 @@ function uploadJSON(input) {
     // Load into editor regardless of errors so the user can fix them
     rules = loaded.map(r => JSON.parse(JSON.stringify(r)));
     activeRuleIndex = 0;
-    topicConfigs = _adoptTopicConfigs(Array.isArray(parsed) ? null : parsed.topics);
+    topicConfigs = _adoptTopicConfigs(topics);
+    _setLoadedBadge(null);
     adoptProductFromRules(); // before rendering, so dropdowns offer the file's product
     populateFormFromRule(rules[0]);
     showScopeHint();
@@ -3264,7 +3214,7 @@ function uploadJSON(input) {
     _warnNearDuplicateTopics();
 
     if (results.valid) {
-      showToast(`Loaded ${rules.length} rule(s) — validation passed!`, 4000);
+      showToast('Rule loaded — validation passed!', 4000);
     } else {
       showToast(`Loaded with ${results.errors.length} error(s) — see validation panel.`, 5000);
     }
@@ -3361,6 +3311,10 @@ function _filterSchemaErrors(rawErrors, jsonArray) {
 function validateRule(jsonArray) {
   const errors = [];
   const warnings = [];
+
+  if (jsonArray.length !== 1) {
+    errors.push('The builder requires exactly one rule per upload.');
+  }
 
   // Schema validation (if available)
   if (schemaValidator) {
@@ -4338,8 +4292,15 @@ function highlightConditionFieldErrors(triggerRoot) {
    IMPORT / EXPORT
    ========================================================= */
 
+function hasSingleEditorRule() {
+  if (rules.length === 1) return true;
+  showToast('Export exactly one rule at a time. Start a new rule or import a single-rule file.', 5000);
+  return false;
+}
+
 function copyJSON() {
   saveActiveRule();
+  if (!hasSingleEditorRule()) return;
   const jsonStr = JSON.stringify(buildDocument(rules), null, 2);
   navigator.clipboard.writeText(jsonStr).then(() => {
     showToast('JSON copied to clipboard!');
@@ -4357,8 +4318,9 @@ function copyJSON() {
 
 function downloadJSON() {
   saveActiveRule();
+  if (!hasSingleEditorRule()) return;
   const jsonStr = JSON.stringify(buildDocument(rules), null, 2);
-  const filename = rules.length === 1 ? (rules[0].id || 'rule') + '.json' : 'rules.json';
+  const filename = (rules[0].id || 'rule') + '.json';
   const blob = new Blob([jsonStr], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -4466,7 +4428,8 @@ function resetForm(silent = false) {
     topicConfigs = {};
     renderRuleList();
     onFormChange();
-    showToast('All rules cleared');
+    _setLoadedBadge(null);
+    showToast('Rule cleared');
   }
 }
 
@@ -4600,6 +4563,7 @@ function _formatVersionLabel(v) {
 /* --- Publish dialog --- */
 
 function openPublishDialog() {
+  saveActiveRule();
   const rulesArray = rules.filter(r => r && Object.keys(r).length > 0);
   const validation = validateRule(rulesArray);
   if (!validation.valid) {
@@ -4647,6 +4611,8 @@ function onPubNameInput() {
 }
 
 async function submitPublish() {
+  saveActiveRule();
+  if (!hasSingleEditorRule()) return;
   const name = document.getElementById('pub-name').value.trim().toLowerCase();
   const description = document.getElementById('pub-desc').value.trim();
   if (!name) return;
@@ -4869,12 +4835,11 @@ async function loadVersion(versionId, label) {
     const file = await _ghGet(`rules/${versionId}.json`);
     if (!file) throw new Error('Version not found');
     const data = JSON.parse(atob(file.content.replace(/\n/g, '')));
-    const loaded = data.rules || (Array.isArray(data) ? data : null);
-    if (!loaded || !loaded.length) throw new Error('No rules found in version');
+    const { loaded, topics } = readSingleRuleDocument(data);
     loaded.forEach(migrateRule);
     rules = loaded.map(r => JSON.parse(JSON.stringify(r)));
     activeRuleIndex = 0;
-    topicConfigs = _adoptTopicConfigs(Array.isArray(data) ? null : data.topics);
+    topicConfigs = _adoptTopicConfigs(topics);
     adoptProductFromRules(); // before rendering, so dropdowns offer the version's product
     populateFormFromRule(rules[0]);
     showScopeHint();
